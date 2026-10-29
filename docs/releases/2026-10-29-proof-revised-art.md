@@ -1,6 +1,6 @@
 # Proof revised-art submission/recovery — October 29, 2026
 
-Status: preparation only. Deployment and live verification not yet completed.
+Status: paused before push/merge/deployment. Additional selected-file recovery correction and exact UX review required. No production mutations performed.
 
 ## Approved scope
 
@@ -38,5 +38,7 @@ Deploy capability dark: `CustomerRevisionSubmissionEnabled=false`, `CustomerRevi
 Retain prior deployed template, public ZIP and frontend files privately with versions/hashes. While the revision feature remains disabled, restore the previous public artifact key and previous Proof entry HTML through reviewed, concurrency-checked operations if needed; keep existing allocation receipts/claims and current allocation/demo/upload gates unchanged. No data rollback or replay. After any future revised-art activation, do not revert to a receipt-incompatible backend; disable submission and preserve exact scope for read-only recovery instead.
 
 ## Remaining gates
+
+Proof owner found that switching proofs loses a selected but unuploaded File. Release paused pending per-binding draft preservation and exact UX follow-up. Read-only live capture for `e90914c` confirmed unchanged production baselines, 1,484 environment bytes after disabled flags, and only two public-bundle files changed. That candidate/capture is superseded and must not be deployed; rebuild and recapture after the correction.
 
 Artifact/change-set/concurrency review, CI, deployment and authenticated smoke are pending. Any A0232139-only live revised-art QA requires a fresh line-3 preflight and separately coordinated activation; exact-file import confirmation requires authoritative evidence or manual Lift-side verification.
