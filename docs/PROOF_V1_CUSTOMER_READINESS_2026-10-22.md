@@ -506,3 +506,16 @@ requires a particular proxy-trust configuration. Proof's public app does not set
 `trust proxy` or use client IP as authorization. Track compatible dependency
 patches separately across the shared workspace; this is scoped triage, not a
 blanket security certification.
+
+## Revised-art completion checkpoint — October 29, 18:34 UTC
+
+This checkpoint supersedes historical pending statements above only where explicitly verified here.
+
+- Multi-creative live QA passed on disposable A0232139: one 5/7 submission resulted in approved quantities 5 and 7 on lines 5 and 4. No duplicate actions. Scope remains `1249:A0232139`, not a customer launch.
+- File History status gating is deployed in main `7db62813682ee143d1b6948a6259fc07efb36d42`. Authenticated checks confirmed pending line 3 has no false approval timestamp, approved line 4 retains its approval details, and custom PDF controls remain intact. Durable closure: `proof/releases/history-status-ac710c9f964ab12ec8b5d3ae5d3abd278a10cabc/closure.md`.
+- Revised-art UI/backend candidate `354f590` is implemented but not deployed or activated. It requires an explicit submit after verified upload readiness, records intent before the sole POST, and offers read-only receipt recovery after uncertainty, reload, or removal of the old task. Exact old attachment/version remains protected; a genuinely new proof can be reviewed independently. A new proof is not evidence that the exact submitted file was imported.
+- Candidate checks: 96 Proof UI tests; Proof TypeScript/build; 226 full Proof API tests (before the final UI-only strip copy adjustment). Development independently verified the timeout and Advanced upload-only compatibility fixes. Public-only deployment wiring `24520b6` defaults submission false and scope empty; its 180 deployment contracts passed in Development's isolated branch.
+- Local browser evidence covers ready, sent, unknown response, reload, removed original task, new proof, never-responding GET, and 390px recovery layout. GET/POST settle after 20 seconds without retry. Existing Advanced upload-only entry behavior is preserved. These use a synthetic local fixture, not live revised-art delivery.
+- Actual Chrome 200% live Proof check: no horizontal overflow at 888 CSS pixels; keyboard File History opened with Enter and closed with Escape. Browser zoom restored to 100%. This is a focused accessibility smoke, not a full screen-reader certification.
+- Final screenshots are under the existing `allocation-qa-oct29` evidence directory, named `revision-{ready,sent,unknown,removed,new-proof}-{1366,1920}.jpg`, plus recovery, timeout, mobile and `proof-live-200-percent.jpg` evidence. Final exact-revision UX approval is pending.
+- Remaining: exact UX approval; coordinated narrow deployment with gates off; fresh line 3 preflight followed by authorized A0232139-only live revised-art QA; manual Lift-side verification of the exact synthetic file if no API receipt exists; customer launch cohort/capability decision. No live revised-art mutation occurred during this checkpoint.
