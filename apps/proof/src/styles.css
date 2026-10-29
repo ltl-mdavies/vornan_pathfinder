@@ -577,8 +577,9 @@ h1, h2, h3, p { margin-top: 0; }
 .revision-submission-note { display: grid; gap: 8px; color: var(--forest); font-size: 12px; font-weight: 700; }
 .revision-submission-note > span { color: var(--muted); font-weight: 400; }
 .revision-submission-note textarea { width: 100%; resize: vertical; min-height: 76px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; color: var(--ink); background: white; }
-.revision-status-dialog { width: min(640px, calc(100vw - 32px)); height: auto; max-height: calc(100dvh - 32px); }
-.revision-status-content { display: grid; gap: 12px; overflow-y: auto; }
+.revision-status-dialog { width: min(640px, calc(100vw - 32px)); height: fit-content; max-height: calc(100dvh - 32px); }
+.revision-status-dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.revision-status-content { display: grid; gap: 12px; min-height: 0; max-height: none; overflow-y: auto; }
 .revision-status-content .revision-upload-progress small, .revision-status-content > p { font-size: 12px; line-height: 1.5; }
 .revision-status-content .revision-upload-progress em { font-size: 11px; }
 .revision-status-resume { flex-wrap: wrap; }
