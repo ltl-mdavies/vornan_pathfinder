@@ -39,7 +39,7 @@ import {
 } from "./background-refresh-state";
 import { demoActivityForHash, demoOrderForHash } from "./demo";
 import { restoreProofDialogFocus } from "./dialog-state";
-import { proofOrderDisplayStatus, proofOrderDisplayTitle } from "./display-state";
+import { proofApprovalTimestamp, proofOrderDisplayStatus, proofOrderDisplayTitle } from "./display-state";
 import {
   filterProofTasks,
   groupProofTasksByLine,
@@ -2338,7 +2338,7 @@ export function App() {
                   <div className="history-version-meta">
                     <span><small>Uploaded to Lift</small><strong>{dialogVersion.created_ts || dialogVersion.created_at ? formatDate(dialogVersion.created_ts ?? dialogVersion.created_at, true) : "Not recorded"}</strong></span>
                     <span><small>Approval status</small><strong>{dialogVersion.approval_status ?? "Not recorded"}</strong></span>
-                    <span><small>Approved in Lift</small><strong>{dialogVersion.proof_approved_ts || dialogVersion.approved_at ? formatDate(dialogVersion.proof_approved_ts ?? dialogVersion.approved_at, true) : "Not recorded"}</strong></span>
+                    {proofApprovalTimestamp(dialogVersion) ? <span><small>Approved in Lift</small><strong>{formatDate(proofApprovalTimestamp(dialogVersion), true)}</strong></span> : null}
                   </div>
                   {dialogVersion.technical_checks.length ? (
                     <section className="technical-checks" aria-labelledby="technical-checks-title">
