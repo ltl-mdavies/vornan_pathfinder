@@ -104,6 +104,36 @@ function commentCountLabel(count: number) {
   return `${count} ${count === 1 ? "comment" : "comments"}`;
 }
 
+function ProofOpenTabLink({ href }: { href: string }) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const open = (hovered || focused) && !dismissed;
+
+  useEffect(() => {
+    if (!open) return;
+    function dismissOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setDismissed(true);
+    }
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => document.removeEventListener("keydown", dismissOnEscape);
+  }, [open]);
+
+  return <span className="proof-open-tab"
+    onMouseEnter={() => { setHovered(true); setDismissed(false); }}
+    onMouseLeave={() => setHovered(false)}>
+    <a className="icon-button subtle" href={href} target="_blank" rel="noreferrer"
+      aria-label="Open proof in a new tab"
+      onFocus={() => { setFocused(true); setDismissed(false); }}
+      onBlur={() => setFocused(false)}>
+      <ExternalLink aria-hidden="true" />
+    </a>
+    {open && <span className="proof-open-tab-tooltip" role="tooltip">
+      <span>Open proof in a new tab</span>
+    </span>}
+  </span>;
+}
+
 function ProofFileFormatInfo() {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -158,7 +188,7 @@ function ProofFileFormatInfo() {
         if (nextPinned) placeTooltip();
       }}
       onFocus={() => { setOpen(true); placeTooltip(); }}
-      onBlur={() => { if (!pinned) setOpen(false); }}
+      onBlur={closeTooltip}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -917,8 +947,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
           <span><strong>Creative approval status</strong><small>Your approval submission is saved. Use View status for the latest result.</small></span>
         </div>
       ) : <>
-      <div className="decision-heading">
-        <strong>{multiProof ? "Creative decision" : "Review decision"}</strong>
+      {!multiProof && <div className="decision-heading">
+        <strong>Review decision</strong>
         <small className="decision-lock-status" id={mobile ? undefined : "action-lock-message"}>
           <LockKeyhole aria-hidden="true" /> {multiProof
             ? allocationBlocked ?? "Review every creative, then confirm its quantity"
@@ -926,16 +956,16 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
               ? "One current, unshared proof can be approved"
               : "Approval is not enabled for this review link"}
         </small>
-      </div>
+      </div>}
       {multiProof ? (
         <>
           <div className="creative-stage-entry">
             <span className="creative-stage-copy">
-              <TaskThumbnail task={selectedTask} />
               <span>
-                <small>Selected creative</small>
-                <strong>Creative {selectedCreativeNumber}</strong>
-                <em title={selectedTask.current_version?.filename ?? "Proof pending"}>{selectedTask.current_version?.filename ?? "Proof pending"}</em>
+                <strong>Creative {selectedCreativeNumber} of {tasks.length}</strong>
+                <small id={mobile ? undefined : "action-lock-message"} className={allocationBlocked ? "creative-stage-blocked" : undefined}>
+                  {allocationBlocked ?? (selectedIsStaged ? "Selected for final approval. Nothing has been submitted yet." : "Choose a decision for this creative.")}
+                </small>
               </span>
             </span>
             <span className="creative-stage-actions">
@@ -951,11 +981,12 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
               <Layers3 aria-hidden="true" />
               <span>
                 <span className="quantity-title">Approval quantities</span>
-                <strong>{summary.complete ? "Approvals ready for final review" : `${stagedTasks.length} of ${tasks.length} selected for approval`}</strong>
-                <small>{quantityGuidance}</small>
-                <span className={`distribution-total ${summary.complete ? "complete" : summary.remaining !== null && summary.remaining < 0 ? "invalid" : ""}`}>
-                  <strong>{summary.assigned}</strong> of <strong>{formatQuantity(lineQuantity) ?? "—"}</strong> assigned <i aria-hidden="true">·</i> <strong>{distributionSummary}</strong>
+                <span className="quantity-entry-summary" title={quantityGuidance}>
+                  <span>{summary.complete ? "Ready for final review" : `${stagedTasks.length} of ${tasks.length} selected`}</span>
+                  <i aria-hidden="true">·</i>
+                  <span className={`distribution-total ${summary.complete ? "complete" : summary.remaining !== null && summary.remaining < 0 ? "invalid" : ""}`}>{distributionSummary}</span>
                 </span>
+                {!demoBatchEnabled && stagedTasks.length > 0 && stagedTasks.length !== actionableTasks.length ? <small>Select every current creative to assign quantities.</small> : null}
               </span>
             </span>
             <button
@@ -2071,7 +2102,7 @@ export function App() {
                   </button>
                   <DetailedReportButton task={selectedTask} version={selectedVersion} />
                   {selectedAsset.download && <a className="button secondary" href={selectedAsset.download} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Download</a>}
-                  {selectedAsset.open && <a className="icon-button subtle" href={selectedAsset.open} target="_blank" rel="noreferrer" aria-label="Open proof in a new tab"><ExternalLink aria-hidden="true" /></a>}
+                  {selectedAsset.open && <ProofOpenTabLink href={selectedAsset.open} />}
                 </div>
               </div>
 

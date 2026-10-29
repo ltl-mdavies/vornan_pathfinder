@@ -76,7 +76,7 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
       try {
         const [pdfjs, worker] = await Promise.all([
           import("pdfjs-dist"),
-          import("pdfjs-dist/build/pdf.worker.min.mjs?url")
+          import("./pdf-worker-url")
         ]);
         pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
         loadingTask = pdfjs.getDocument({

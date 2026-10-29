@@ -238,7 +238,10 @@ test("Proof saves, reviews, processes, and summarizes a multi-proof allocation w
   await expect(proofQueue.locator(".line-group-thumbnail")).toHaveCount(2);
   await expect(page.locator(".preview-filebar")).toContainText("north-wall-v2.jpg");
   const visibleTransport = page.locator(".action-transport:visible");
-  await expect(visibleTransport.getByText("Select each creative you want to approve, then assign its quantity.")).toBeVisible();
+  await expect(visibleTransport.getByText("Creative 1 of 4", { exact: true })).toBeVisible();
+  await expect(visibleTransport.getByText("Choose a decision for this creative.")).toBeVisible();
+  await expect(visibleTransport.getByText("0 of 4 selected", { exact: true })).toBeVisible();
+  await expect(visibleTransport.locator(".distribution-total")).toContainText("20 remaining");
   await expect(page.getByLabel("Message with approval (optional)")).toHaveCount(0);
   await expect(visibleTransport.locator("[data-quantity-assignment-trigger]")).toBeDisabled();
 
@@ -246,7 +249,7 @@ test("Proof saves, reviews, processes, and summarizes a multi-proof allocation w
   await page.getByRole("button", { name: new RegExp(`Creative 1: ${creativeLabels[0]}`) }).click();
   await visibleTransport.getByRole("button", { name: "Approve this creative" }).click();
   await visibleTransport.getByRole("button", { name: "Undo" }).click();
-  await expect(visibleTransport.getByText("0 of 4 selected for approval")).toBeVisible();
+  await expect(visibleTransport.getByText("0 of 4 selected", { exact: true })).toBeVisible();
   await expect(visibleTransport.locator("[data-quantity-assignment-trigger]")).toBeDisabled();
 
   for (let index = 0; index < creativeLabels.length; index += 1) {
@@ -254,7 +257,7 @@ test("Proof saves, reviews, processes, and summarizes a multi-proof allocation w
     await visibleTransport.getByRole("button", { name: "Approve this creative" }).click();
     await expect(visibleTransport.getByText("Ready to submit")).toBeVisible();
   }
-  await expect(visibleTransport.getByText("4 of 4 selected for approval")).toBeVisible();
+  await expect(visibleTransport.getByText("4 of 4 selected", { exact: true })).toBeVisible();
 
   await visibleTransport.locator("[data-quantity-assignment-trigger]").click();
   const dialog = page.getByRole("dialog", { name: "Assign quantities" });

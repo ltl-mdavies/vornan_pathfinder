@@ -4,6 +4,14 @@ import test from "node:test";
 
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
+test("compact creative dock retains two steps and disabled revision safeguards", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(styles, /\.action-transport\.distribution\s*\{[^}]*grid-template-rows:\s*auto auto;/s);
+  assert.match(styles, /\.creative-stage-actions \.button\s*\{\s*min-height:\s*44px;/);
+  assert.match(app, /className="button secondary request-changes" type="button" disabled title="Multiple-proof revision requests require coordinated support."/);
+  assert.match(app, /allocationBlocked \?\? \(selectedIsStaged/);
+});
+
 test("bounds thumbnail grid tracks so intrinsic portrait artwork cannot be clipped", () => {
   assert.match(styles, /\.task-thumbnail\s*\{[^}]*grid-template:\s*minmax\(0, 1fr\) \/ minmax\(0, 1fr\);/s);
   assert.match(styles, /\.task-thumbnail img\s*\{[^}]*min-width:\s*0;[^}]*min-height:\s*0;/s);
@@ -38,4 +46,16 @@ test("reserves green status treatment for approved proofs", () => {
 test("keeps viewer-control tooltips available on hover and keyboard focus", () => {
   assert.match(styles, /\.proof-control-island button\[data-tooltip\]::after\s*\{[^}]*content:\s*attr\(data-tooltip\);/s);
   assert.match(styles, /button\[data-tooltip\]:hover:not\(:disabled\)::after,\s*\.proof-control-island button\[data-tooltip\]:focus-visible::after/s);
+});
+
+test("clarifies the new-tab link on hover and keyboard focus without changing sharing or navigation", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /className="icon-button subtle"[^>]*target="_blank"[^>]*aria-label="Open proof in a new tab"/s);
+  assert.match(app, /const open = \(hovered \|\| focused\) && !dismissed;/);
+  assert.match(app, /if \(event.key === "Escape"\) setDismissed\(true\);/);
+  assert.match(app, /document.removeEventListener\("keydown", dismissOnEscape\)/);
+  assert.match(app, /onMouseEnter=\{\(\) => \{ setHovered\(true\); setDismissed\(false\); \}\}/);
+  assert.match(app, /onFocus=\{\(\) => \{ setFocused\(true\); setDismissed\(false\); \}\}/);
+  assert.match(styles, /\.proof-open-tab-tooltip\s*\{[^}]*right:\s*0;[^}]*top:\s*100%;[^}]*padding-top:\s*6px;/s);
+  assert.doesNotMatch(styles, /\.proof-open-tab-tooltip\s*\{[^}]*pointer-events:\s*none/s);
 });
