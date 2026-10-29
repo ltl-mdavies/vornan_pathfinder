@@ -1,10 +1,10 @@
 # Proof revised-art submission/recovery — October 29, 2026
 
-Status: paused before push/merge/deployment. Additional selected-file recovery correction and exact UX review required. No production mutations performed.
+Status: release preparation. Final source/UX review complete; controlled recovery evidence and execution gates below must close before deployment. No production mutations performed.
 
 ## Approved scope
 
-Marcus authorized coordinated completion and deployment of the interrupted Proof work. Pathfinder UX approved exact product source `115b539848b9b7c0f9e8b12ea441468ffb6ea98e` on October 29; both receipt-copy findings are closed. Integrated source `23dd46daab8bbb0c347680080a8cc3f6023f5b47` matches that product source exactly plus default-off release wiring `24520b6135c475b5a61ad9a80371c1e6bce813f1`. Documentation checkpoint `326f2c1` is included.
+Marcus authorized coordinated completion and deployment of the interrupted Proof work. Pathfinder UX approved product source `115b539848b9b7c0f9e8b12ea441468ffb6ea98e`, then the draft/long-receipt additions at `c3cbddca443e6415f77ceeaa3426224f63eac886`. UX confirms that approval carries forward to technical-only async guards `3a3c6fd1693c6de49a9d68579b38f013a994975a`; final controlled isolation evidence remains a technical gate. Integrated source `fe09440` matches that product source exactly plus default-off release wiring `24520b6135c475b5a61ad9a80371c1e6bce813f1` and this release record. Documentation checkpoint `326f2c1` is included.
 
 Deploy capability dark: `CustomerRevisionSubmissionEnabled=false`, `CustomerRevisionScope=""`. No live revised-art submission, customer launch, QA activation, emails, grant creation, or Lift mutation is included. Preserve existing effective allocation scope `1249:A0232139`, Demo access, private upload and approval settings. Successful transport, exact-file import, and subsequent proof approval are distinct outcomes; a new proof alone is not evidence of exact-file import.
 
@@ -19,7 +19,7 @@ Deploy capability dark: `CustomerRevisionSubmissionEnabled=false`, `CustomerRevi
 ## Validation completed locally
 
 - All workspace typechecks and builds passed.
-- 1,467 workspace tests passed, including 96 Proof UI tests; 180 deployment contracts passed.
+- 1,470 workspace tests passed, including 99 Proof UI tests; 180 deployment contracts passed.
 - Exact product-source comparison versus the UX-approved source shows only four deployment wiring/test files added.
 - Timeout guards independently settle GET/POST without retries; interrupted submissions retain intent. Existing Advanced upload-only behavior remains unchanged. Submission authority is exact-scope and default-off, with read-only recovery possible after disabling writes while retaining a scope in a future authorized activation.
 
@@ -42,5 +42,7 @@ Retain prior deployed template, public ZIP and frontend files privately with ver
 Proof owner found that switching proofs loses a selected but unuploaded File. Release paused pending per-binding draft preservation and exact UX follow-up. Read-only live capture for `e90914c` confirmed unchanged production baselines, 1,484 environment bytes after disabled flags, and only two public-bundle files changed. That candidate/capture is superseded and must not be deployed; rebuild and recapture after the correction.
 
 Follow-up product source `c3cbddc` is integrated locally (per-binding in-memory draft retention and content-sized receipt rows); 98 Proof UI tests and Proof typecheck pass. Independent review also identified that an already-running asset-status poll can complete after switching proof bindings and overwrite the new draft. Sent to Proof owner for a binding/active completion guard and delayed-response verification. Technical hold remains; no release execution.
+
+Final correction `3a3c6fd` guards mounted/binding context across polling, hashing, prepare, upload, finalization, retry and submit completion. Source review passes; UX approval carries forward without design changes. Before execution, obtain the clean delayed-response rerun with recovery seeded only to proof A (no global `retry_asset`), proving proof B's file/note/message/eligibility stay unchanged. This resolves the previous screenshot's unrelated recovery warning ambiguity. Record the result and browser regression completion in private release evidence. Earlier captures remain superseded.
 
 Artifact/change-set/concurrency review, CI, deployment and authenticated smoke are pending. Any A0232139-only live revised-art QA requires a fresh line-3 preflight and separately coordinated activation; exact-file import confirmation requires authoritative evidence or manual Lift-side verification.
