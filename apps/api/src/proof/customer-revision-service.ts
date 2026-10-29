@@ -57,9 +57,9 @@ export function createCustomerRevisionService(deps: {
     return record!;
   }
   return {
-    async list(context: Context & { task_id: string }) {
+    async list(context: Context & { task_id?: string }) {
       authorize(context.session);
-      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(context.task_id)) fail("invalid", "Invalid proof reference.");
+      if (context.task_id !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(context.task_id)) fail("invalid", "Invalid proof reference.");
       // Recovery remains possible after a proof changes, but receipts never
       // confer authority to act on the replacement proof or another review.
       return (await (deps.list ?? listRevisionSubmissions)(context.session.order_number))
@@ -67,7 +67,7 @@ export function createCustomerRevisionService(deps: {
           && record.customer_id === context.session.capability!.proof_customer_id
           && record.grant_id === context.session.grant_id
           && record.participant_id === context.session.participant_id
-          && record.task_id === context.task_id)
+          && (context.task_id === undefined || record.task_id === context.task_id))
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
         .map(publicRevisionSubmission);
     },

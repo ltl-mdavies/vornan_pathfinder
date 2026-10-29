@@ -187,9 +187,11 @@ test("revision submission routes require session and CSRF, bind requests server-
   } }));
   const submitPath = "/api/public/proof/tasks/ptask_public_qa/revised-art/submissions";
   const statusPath = "/api/public/proof/revised-art/submissions/prevision_send_test";
+  const orderReceiptsPath = "/api/public/proof/revised-art/submissions";
   await request(revisionApp).post(submitPath).send({}).expect(401);
   await request(revisionApp).get(statusPath).expect(401);
   await request(revisionApp).get(submitPath).expect(401);
+  await request(revisionApp).get(orderReceiptsPath).expect(401);
   await request(revisionApp).post(submitPath).set("Cookie", cookie).send({}).expect(403);
   assert.equal(calls.length, 0);
   await request(revisionApp).post(submitPath).set("Cookie", cookie).set("X-Vornan-Proof-Csrf", csrf).send({ task_id: "spoofed", order_number: "A0000000", delivery_url: "https://attacker.invalid/file.pdf" }).expect(200);
@@ -201,11 +203,15 @@ test("revision submission routes require session and CSRF, bind requests server-
   assert.equal(calls.length, 2);
   await request(revisionApp).get(submitPath).set("Cookie", cookie).expect(200);
   assert.equal(calls[2].task_id, "ptask_public_qa");
+  await request(revisionApp).get(`${orderReceiptsPath}?order_number=A0000000`).set("Cookie", cookie).expect(200);
+  assert.equal(calls[3].session.order_number, order.order_number);
+  assert.equal(calls[3].task_id, undefined);
   await access.updateProofGrant(created.grant.grant_id, { action: "revoke" });
   await request(revisionApp).post(submitPath).set("Cookie", cookie).set("X-Vornan-Proof-Csrf", csrf).send({}).expect(401);
   await request(revisionApp).get(statusPath).set("Cookie", cookie).expect(401);
   await request(revisionApp).get(submitPath).set("Cookie", cookie).expect(401);
-  assert.equal(calls.length, 3);
+  await request(revisionApp).get(orderReceiptsPath).set("Cookie", cookie).expect(401);
+  assert.equal(calls.length, 4);
 });
 
 test("rejects an unknown grant scope before it can be persisted", async () => {

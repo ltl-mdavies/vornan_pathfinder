@@ -89,3 +89,19 @@ test("lost-response recovery discovers only the current reviewer and task receip
   f.disable(); await assert.rejects(f.service.list({ ...f.context, task_id: f.task.task_id }));
   assert.equal(f.sends.length, 1);
 });
+
+test("order receipt discovery survives removed or replaced tasks without claiming imported artwork", async () => {
+  const f = fixture(); const submitted = await f.submit();
+  f.order.tasks = []; // At7.01 Lift may return no current proof rows.
+  assert.deepEqual(await f.service.list(f.context), [submitted]);
+  f.order.tasks = [{ ...f.task, task_id: "new-proof-task", attachment_id: "999", current_version: { ...f.task.current_version, version_id: "new-proof-version" } } as never];
+  assert.deepEqual(await f.service.list(f.context), [submitted]);
+  assert.equal(submitted.lift_outcome_confirmed, false);
+  assert.equal(f.sends.length, 1);
+  assert.equal(f.reads, 1); // Recovery does not synchronize or submit to Lift.
+  for (const patch of [{ grant_id: "other" }, { participant_id: "other" }, { order_number: "A0000000" },
+    { capability: { ...f.session.capability!, proof_customer_id: "999" } }]) {
+    assert.deepEqual(await f.service.list({ ...f.context, session: { ...f.session, ...patch } }), []);
+  }
+  f.disable(); await assert.rejects(f.service.list(f.context));
+});
