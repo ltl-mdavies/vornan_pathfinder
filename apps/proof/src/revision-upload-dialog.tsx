@@ -273,8 +273,13 @@ export function RevisionUploadDialog({
 
   const progress = asset ? revisionAssetProgress(asset) : null;
   const readyToSubmit = Boolean(asset?.state === "ready_for_lift" && asset.publication_status === "delivery_verified" && asset.verification_status === "cleared");
+  const submitScopeBlocked = task && (task.sibling_count > 1 || (task.shared_line_numbers?.length ?? 0) > 1)
+    ? "Submitting revised artwork is available only for a single, unshared proof. Your uploaded file remains saved."
+    : task && (task.state !== "pending" || task.action_reconciliation_pending)
+      ? "This proof is not currently available for artwork submission."
+      : null;
   const sendArtwork = async () => {
-    if (!task || !asset || !readyToSubmit || !submissionEnabled || submissionBlocked || blockedMessage || submitStarted.current) return;
+    if (!task || !asset || !readyToSubmit || !submissionEnabled || submissionBlocked || submitScopeBlocked || blockedMessage || submitStarted.current) return;
     submitStarted.current = true; setSubmitting(true); setMessage(null);
     try {
       // Parent persists intent before the sole POST and owns saved-state recovery.
@@ -375,6 +380,7 @@ export function RevisionUploadDialog({
         }} maxLength={2000} disabled={submitting} rows={3} /></label> : null}
         {asset && !submissionEnabled ? <p className="revision-upload-message">Your file is saved only. Submission to production is not enabled in this review.</p> : null}
         {submissionBlocked ? <p className="revision-upload-message blocked">{submissionBlocked}</p> : null}
+        {submissionEnabled && submitScopeBlocked ? <p className="revision-upload-message blocked">{submitScopeBlocked}</p> : null}
         {stageCopy(stage) ? <p className="revision-upload-message" role="status"><LoaderCircle className="spinning" aria-hidden="true" /> {stageCopy(stage)}</p> : null}
         {message ? <p className="revision-upload-message error" role="alert">{message}</p> : null}
       </div>
@@ -382,7 +388,7 @@ export function RevisionUploadDialog({
         <button className="button secondary" type="button" disabled={busy} onClick={close}>{asset ? "Close" : "Cancel"}</button>
         {!asset ? <button className="button primary" type="button" disabled={!file || Boolean(blockedMessage) || Boolean(message) || busy} onClick={() => void submit()}>{busy ? stage === "hashing" ? "Checking file…" : "Uploading…" : "Upload and check file"}</button> : null}
         {asset && stage === "error" ? <button className="button primary" type="button" disabled={busy} onClick={() => void retryFinalization()}>Retry file check</button> : null}
-        {readyToSubmit && submissionEnabled ? <button className="button primary" type="button" disabled={busy || submitting || Boolean(blockedMessage) || Boolean(submissionBlocked)} onClick={() => void sendArtwork()}>{submitting ? "Sending…" : "Submit artwork"}</button> : null}
+        {readyToSubmit && submissionEnabled ? <button className="button primary" type="button" disabled={busy || submitting || Boolean(blockedMessage) || Boolean(submissionBlocked) || Boolean(submitScopeBlocked)} onClick={() => void sendArtwork()}>{submitting ? "Sending…" : "Submit artwork"}</button> : null}
       </div>
     </dialog>
   );

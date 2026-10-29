@@ -72,7 +72,9 @@ export function useRevisionSubmissions(orderNumber: string | null, participantId
       if (error instanceof ProofApiError && error.status === 401) sessionExpired.current();
       // Discovery can recover a receipt despite an unsuccessful POST response.
       // No missing receipt, error or new proof is interpreted as permission to resend.
-      await check();
+      // Do not keep Sending active while read-only discovery is pending.
+      // The write-ahead intent remains visible and protective immediately.
+      void check();
     } finally {
       inFlight.current = false;
       if (currentKey.current === context) setSending(false);

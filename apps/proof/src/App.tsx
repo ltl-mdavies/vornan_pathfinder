@@ -831,8 +831,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       ? freshnessBlocked
     : !participantIdentified
       ? "Identify the reviewer before providing revised artwork."
-      : actionableTasks.length > 1
-        ? "Revised artwork submission is available only for a single, unshared proof."
+      : actionableTasks.length > 1 && reviewExperience === "simple"
+        ? "This line has multiple current proofs and requires coordinated support."
       : selectedTask.feedback_required && !selectedTask.feedback_acknowledged
         ? "Review and acknowledge the prepress team feedback before providing revised artwork."
       : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
