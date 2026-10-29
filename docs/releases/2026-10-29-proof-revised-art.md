@@ -41,4 +41,6 @@ Retain prior deployed template, public ZIP and frontend files privately with ver
 
 Proof owner found that switching proofs loses a selected but unuploaded File. Release paused pending per-binding draft preservation and exact UX follow-up. Read-only live capture for `e90914c` confirmed unchanged production baselines, 1,484 environment bytes after disabled flags, and only two public-bundle files changed. That candidate/capture is superseded and must not be deployed; rebuild and recapture after the correction.
 
+Follow-up product source `c3cbddc` is integrated locally (per-binding in-memory draft retention and content-sized receipt rows); 98 Proof UI tests and Proof typecheck pass. Independent review also identified that an already-running asset-status poll can complete after switching proof bindings and overwrite the new draft. Sent to Proof owner for a binding/active completion guard and delayed-response verification. Technical hold remains; no release execution.
+
 Artifact/change-set/concurrency review, CI, deployment and authenticated smoke are pending. Any A0232139-only live revised-art QA requires a fresh line-3 preflight and separately coordinated activation; exact-file import confirmation requires authoritative evidence or manual Lift-side verification.
