@@ -20,6 +20,14 @@ test("multiple receipt cards keep content-sized rows inside a scrolling dialog",
   const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
   assert.match(css, /\.revision-status-content \{[^}]*grid-auto-rows: max-content;[^}]*overflow-y: auto;/);
 });
+test("late upload polling and completion cannot overwrite a different proof draft", () => {
+  const upload = readFileSync(new URL("../src/revision-upload-dialog.tsx", import.meta.url), "utf8");
+  assert.match(upload, /if \(!active \|\| draftBinding.current !== binding\) return;/);
+  assert.match(upload, /active = false; window.clearTimeout\(timer\)/);
+  assert.match(upload, /mounted.current && draftBinding.current === binding/);
+  assert.match(upload, /await finalizeRevisionUpload\(prepared.asset.asset_id\);\s*if \(!stillCurrent\(\)\) return;/);
+  assert.match(upload, /await uploadRevisionFile\(prepared.upload, file\);\s*if \(!stillCurrent\(\)\) return;/);
+});
 test("successful or failed I/O is never retried by the timeout guard", async () => {
   let calls = 0;
   assert.equal(await boundedRevisionRequest(async () => { calls++; return "saved"; }, 100), "saved");

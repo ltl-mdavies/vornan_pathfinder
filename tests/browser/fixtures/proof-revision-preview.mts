@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { demoOrder } from '../../../apps/proof/src/demo.ts';
 const assetId = 'passet_' + 'a'.repeat(64);
 let scenario = 'accepted', receipt: any = null;
-let sends = 0, reads = 0;
+let sends = 0, reads = 0, assetReads = 0;
 const base = structuredClone(demoOrder);
 base.order_title = 'Revised artwork QA — no Lift connection';
 base.last_synced_at = new Date().toISOString();
@@ -17,19 +17,19 @@ const asset = { asset_id: assetId, revision_id: 'revision', task_id: task.task_i
 const server = await createServer({ configFile: false, root: new URL('../../../apps/proof', import.meta.url).pathname, plugins: [{ name: 'isolated-revision-qa', configureServer(server) {
   server.middlewares.use(async (req, res, next) => {
     const url = new URL(req.url!, 'http://127.0.0.1:5185');
-    if (url.pathname === '/' && url.searchParams.has('qa') && scenario !== url.searchParams.get('qa')) { scenario = url.searchParams.get('qa')!; receipt = null; sends = 0; reads = 0; }
+    if (url.pathname === '/' && url.searchParams.has('qa') && scenario !== url.searchParams.get('qa')) { scenario = url.searchParams.get('qa')!; receipt = null; sends = 0; reads = 0; assetReads = 0; }
     res.setHeader('Content-Security-Policy', "connect-src 'self' ws://127.0.0.1:5185");
     const send = (value: unknown, status = 200) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
     if (url.pathname === '/__qa/counts') { res.setHeader('Content-Type', 'text/html'); return res.end(`<pre>Submissions: ${sends}\nRead checks: ${reads}</pre>`); }
     if (!url.pathname.startsWith('/api/')) return next();
     if (url.pathname === '/api/public/proof/order') {
       const order = structuredClone(base);
-      if (scenario === 'draft') { order.tasks.push({ ...structuredClone(task), task_id: 'ptask_second', attachment_id: '789', line_number: '4', current_version: { ...structuredClone(task.current_version), filename: 'Second-proof.jpg', version_id: 'pversion_second' } } as any); order.counts.pending = 2; order.counts.total = 2; }
+      if (scenario === 'draft' || scenario === 'delayed') { order.tasks.push({ ...structuredClone(task), task_id: 'ptask_second', attachment_id: '789', line_number: '4', current_version: { ...structuredClone(task.current_version), filename: 'Second-proof.jpg', version_id: 'pversion_second' } } as any); order.counts.pending = 2; order.counts.total = 2; }
       if (scenario === 'replacement' && receipt) { order.tasks[0].attachment_id = '456'; order.tasks[0].current_version!.version_id = 'pversion_replacement'; order.tasks[0].current_version!.filename = 'New-proof.jpg'; }
       if (scenario === 'removed' && receipt) { order.tasks = []; order.counts = { pending: 0, regenerating: 0, waiting: 1, reviewed: 0, total: 1 }; }
       return send({ order, participant: { participant_id: 'revision-reviewer-' + scenario, display_name: 'Local QA', email: 'qa@example.invalid' }, activity: { identified_reviewers: 1 }, session_expires_at: new Date(Date.now() + 3600000).toISOString(), refresh_queued: false });
     }
-    if (url.pathname.includes('/revised-assets/uploads/')) return send({ asset });
+    if (url.pathname.includes('/revised-assets/uploads/')) { assetReads++; if (scenario === 'delayed' && assetReads === 1) return send({ asset: {...asset, state: 'verifying', verification_status: 'pending', publication_status: 'not_started'} }); if (scenario === 'delayed' && assetReads === 2) { console.log('Delayed original-proof status request started'); setTimeout(() => { console.log('Delayed original-proof status response released'); send({asset}); }, 15000); return; } return send({ asset }); }
     if (url.pathname.endsWith('/revised-art/submissions') && req.method === 'POST') {
       sends++;
       let raw = ''; for await (const chunk of req) raw += chunk;

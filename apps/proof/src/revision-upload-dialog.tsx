@@ -86,6 +86,8 @@ export function RevisionUploadDialog({
   const submitStarted = useRef(false);
   const returnFocus = useRef<HTMLElement | null>(null);
   const draftBinding = useRef<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   // File handles stay in memory, never serialized into browser storage. Bind
   // each draft to its order, reviewer, task and version, not the selected line.
   const drafts = useRef(new Map<string, RevisionDraft>());
@@ -168,19 +170,23 @@ export function RevisionUploadDialog({
 
   useEffect(() => {
     if (!open || !asset || asset.state === "ready_for_lift" || asset.verification_status === "quarantined" || (asset.verification_status === "cleared" && asset.publication_status === "not_started") || pollCount >= 24) return;
+    let active = true;
+    const binding = draftBinding.current;
     const timer = window.setTimeout(async () => {
       try {
         const result = await loadRevisionUploadStatus(asset.asset_id);
+        if (!active || draftBinding.current !== binding) return;
         setAsset(result.asset);
         setStage("processing");
         setPollCount((count) => count + 1);
       } catch (error) {
+        if (!active || draftBinding.current !== binding) return;
         if (error instanceof ProofApiError && error.status === 401) sessionExpired.current();
         setPollCount((count) => count + 1);
       }
     }, 5_000);
-    return () => window.clearTimeout(timer);
-  }, [asset, open, pollCount]);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [asset, open, pollCount, recoveryKey, task?.task_id, task?.current_version?.version_id]);
 
   const close = () => {
     if (busy) return;
@@ -210,6 +216,8 @@ export function RevisionUploadDialog({
 
   const submit = async () => {
     if (!task?.attachment_id || !task.current_version || !file || busy) return;
+    const binding = draftBinding.current;
+    const stillCurrent = () => mounted.current && draftBinding.current === binding;
     const validation = validateRevisionFile(file);
     if (validation) {
       setStage("error");
@@ -222,6 +230,7 @@ export function RevisionUploadDialog({
     try {
       setStage("hashing");
       const digest = await sha256File(file);
+      if (!stillCurrent()) return;
       const identity = `${task.task_id}:${task.current_version.version_id}:${file.name}:${file.size}:${digest}`;
       const idempotencyKey = idempotencyKeys.current.get(identity)
         ?? `prevision_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -235,23 +244,28 @@ export function RevisionUploadDialog({
         content_length: file.size,
         sha256: digest
       });
+      if (!stillCurrent()) return;
       setAsset(prepared.asset);
       if (recoveryKey) window.sessionStorage.setItem(recoveryKey, prepared.asset.asset_id);
       setStage("uploading");
       await uploadRevisionFile(prepared.upload, file);
+      if (!stillCurrent()) return;
       setStage("finalizing");
       const finalized = await finalizeRevisionUpload(prepared.asset.asset_id);
+      if (!stillCurrent()) return;
       setAsset(finalized.asset);
       setStage("processing");
       setPollCount(0);
       onUploadAccepted(task);
     } catch (error) {
+      if (!stillCurrent()) return;
       if (error instanceof ProofApiError && error.status === 401) {
         onSessionExpired();
         return;
       }
       if (isLiftProofUpdatedError(error)) {
         await onProofUpdated(task);
+        if (!stillCurrent()) return;
         onClose();
         return;
       }
@@ -262,14 +276,18 @@ export function RevisionUploadDialog({
 
   const retryFinalization = async () => {
     if (!asset || busy) return;
+    const binding = draftBinding.current;
+    const stillCurrent = () => mounted.current && draftBinding.current === binding;
     setMessage(null);
     try {
       setStage("finalizing");
       const finalized = await finalizeRevisionUpload(asset.asset_id);
+      if (!stillCurrent()) return;
       setAsset(finalized.asset);
       setStage("processing");
       setPollCount(0);
     } catch (error) {
+      if (!stillCurrent()) return;
       if (error instanceof ProofApiError && error.status === 401) {
         onSessionExpired();
         return;
@@ -288,16 +306,20 @@ export function RevisionUploadDialog({
       : null;
   const sendArtwork = async () => {
     if (!task || !asset || !readyToSubmit || !submissionEnabled || submissionBlocked || submitScopeBlocked || blockedMessage || submitStarted.current) return;
+    const binding = draftBinding.current;
+    const stillCurrent = () => mounted.current && draftBinding.current === binding;
     submitStarted.current = true; setSubmitting(true); setMessage(null);
     try {
       // Parent persists intent before the sole POST and owns saved-state recovery.
       await onSubmitArtwork(task, asset, note);
+      if (!stillCurrent()) return;
       onClose();
     } catch (error) {
+      if (!stillCurrent()) return;
       // Only local/preflight errors escape the parent; uncertain sends never do.
       submitStarted.current = false;
       setMessage(error instanceof Error ? error.message : "Artwork could not be prepared for submission.");
-    } finally { setSubmitting(false); }
+    } finally { if (stillCurrent()) setSubmitting(false); }
   };
   const currentFilename = task?.current_version?.filename ?? "Current proof";
   const currentPreview = task?.current_version?.preview_kind === "image"
