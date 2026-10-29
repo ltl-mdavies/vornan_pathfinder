@@ -33,7 +33,7 @@ import {
 import type { ProofCustomerCapabilityAuthorityReader } from "./customer-capability-authority.js";
 import { ProofDetailedReportError, proofDetailedReportService } from "./detailed-report-service.js";
 import { customerAllocationService, customerAllocationsEnabled, customerAllocationScopeAllowed } from "./customer-quantity-service.js";
-import { customerRevisionService } from "./customer-revision-service.js";
+import { customerRevisionService, customerRevisionSubmissionEnabled, customerRevisionScopeAllowed } from "./customer-revision-service.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -284,7 +284,9 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
           ...publicOrder,
           access: {
             ...publicOrder.access,
-            revision_upload_enabled: revisionUploadEnabled
+            revision_upload_enabled: revisionUploadEnabled,
+            revision_recovery_enabled: session.scope === "review" && grant.capability?.access_mode === "review" && proofRuntime.feature_flags.public_read && customerRevisionScopeAllowed(session),
+            revision_submission_enabled: revisionUploadEnabled && publicOrder.access.decisions_enabled && customerRevisionSubmissionEnabled() && customerRevisionScopeAllowed(session)
           },
           health: automaticRefresh.stale && publicOrder.health === "active" ? "stale" : publicOrder.health,
           tasks: publicOrder.tasks.map((task) => ({ ...task, ...feedbackStates.get(task.task_id) }))

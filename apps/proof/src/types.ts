@@ -82,6 +82,8 @@ export interface ProofOrder {
     review_experience: "simple" | "advanced";
     allocation_enabled?: boolean;
     revision_upload_enabled?: boolean;
+    revision_submission_enabled?: boolean;
+    revision_recovery_enabled?: boolean;
   };
 }
 

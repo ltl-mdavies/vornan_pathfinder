@@ -235,6 +235,8 @@ export interface ProofRevisionSubmission {
   version_id: string;
   asset_id: string;
   filename: string;
+  line_number?: string | null;
+  proof_filename?: string | null;
   state: "submitted" | "checking" | "accepted";
   automatic_retry: false;
   lift_outcome_confirmed: false;
@@ -250,7 +252,7 @@ export const loadRevisionSubmission = (submissionId: string) => api<{ submission
 );
 
 /** Call only on an explicit user submission; status checks must never call this. */
-export function submitRevisionArtwork(input: {
+export async function submitRevisionArtwork(input: {
   task_id: string;
   asset_id: string;
   attachment_id: string;
@@ -260,11 +262,15 @@ export function submitRevisionArtwork(input: {
   note?: string | null;
 }) {
   const { task_id, ...body } = input;
-  return api<{ submission: ProofRevisionSubmission }>(
-    `/api/public/proof/tasks/${encodeURIComponent(task_id)}/revised-art/submissions`,
-    { method: "POST", body: JSON.stringify(body) },
-    true
-  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  try {
+    return await api<{ submission: ProofRevisionSubmission }>(
+      `/api/public/proof/tasks/${encodeURIComponent(task_id)}/revised-art/submissions`,
+      { method: "POST", body: JSON.stringify(body), signal: controller.signal },
+      true
+    );
+  } finally { clearTimeout(timeout); }
 }
 
 export async function startDetailedReport(taskId: string, definitionId: string) {

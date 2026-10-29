@@ -574,6 +574,15 @@ h1, h2, h3, p { margin-top: 0; }
 .revision-upload-message.blocked { background: #f3ead7; color: var(--warning); }
 .revision-upload-message.error { background: #f5e5e1; color: #8a3d36; }
 .revision-upload-actions { min-height: 72px; padding: 13px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.revision-submission-note { display: grid; gap: 8px; color: var(--forest); font-size: 12px; font-weight: 700; }
+.revision-submission-note > span { color: var(--muted); font-weight: 400; }
+.revision-submission-note textarea { width: 100%; resize: vertical; min-height: 76px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; color: var(--ink); background: white; }
+.revision-status-dialog { width: min(640px, calc(100vw - 32px)); height: auto; max-height: calc(100dvh - 32px); }
+.revision-status-content { display: grid; gap: 12px; overflow-y: auto; }
+.revision-status-content .revision-upload-progress small, .revision-status-content > p { font-size: 12px; line-height: 1.5; }
+.revision-status-content .revision-upload-progress em { font-size: 11px; }
+.revision-status-resume { flex-wrap: wrap; }
+.revision-last-checked { margin: 0; color: var(--muted); }
 .spinning { animation: spin .8s linear infinite; }
 .revision-guidance { color: var(--muted); }
 .button.primary { background: var(--forest); color: white; }
