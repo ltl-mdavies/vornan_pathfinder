@@ -664,6 +664,9 @@ test("fails a bound session closed when the saved policy changes even if the gra
 test("binds revised-art upload lifecycle calls to one identified review session without publishing or calling Lift", async () => {
   process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS = "true";
   process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "true";
+  process.env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD = "true";
+  process.env.PATHFINDER_PROOF_ASSET_BUCKET = "vornan-pathfinder-proof-assets-test-123456789012";
+  process.env.PATHFINDER_PROOF_ASSET_UPLOAD_QA_WINDOW = `${new Date(Date.now() + 3600_000).toISOString()}|${order.order_number}`;
   try {
     const calls: Array<{ operation: string; input: any }> = [];
     const revisionApp = express();
@@ -762,9 +765,27 @@ test("binds revised-art upload lifecycle calls to one identified review session 
     }
     assert.equal(JSON.stringify(calls).includes("delivery_url"), false);
     assert.equal(JSON.stringify(calls).includes("REVISED_ART_WILL_BE_SENT"), false);
+    // Capability and all three upload routes must agree when the window is
+    // expired, malformed, or restricted to another order.
+    for (const window of ["invalid", `2000-01-01T00:00:00Z|${order.order_number}`, `${new Date(Date.now() + 3600_000).toISOString()}|A0233367`]) {
+      process.env.PATHFINDER_PROOF_ASSET_UPLOAD_QA_WINDOW = window;
+      const blocked = await request(revisionApp).get("/api/public/proof/order").set("Cookie", credentials.cookie).expect(200);
+      assert.equal(blocked.body.order.access.revision_upload_enabled, false);
+      assert.equal(blocked.body.order.access.revision_submission_enabled, false);
+      await request(revisionApp).post(`/api/public/proof/tasks/${order.tasks[0]!.task_id}/revised-assets/uploads/prepare`)
+        .set("Cookie", credentials.cookie).set("X-Vornan-Proof-Csrf", credentials.csrf).send({}).expect(503);
+      await request(revisionApp).get(`/api/public/proof/revised-assets/uploads/${assetId}`)
+        .set("Cookie", credentials.cookie).expect(503);
+      await request(revisionApp).post("/api/public/proof/revised-assets/uploads/finalize")
+        .set("Cookie", credentials.cookie).set("X-Vornan-Proof-Csrf", credentials.csrf).send({ asset_id: assetId }).expect(503);
+      assert.equal(calls.length, 3);
+    }
   } finally {
     delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
     delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS;
+    delete process.env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD;
+    delete process.env.PATHFINDER_PROOF_ASSET_BUCKET;
+    delete process.env.PATHFINDER_PROOF_ASSET_UPLOAD_QA_WINDOW;
   }
 });
 

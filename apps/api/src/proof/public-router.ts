@@ -12,6 +12,7 @@ import {
   validateProofSession
 } from "./access-service.js";
 import { assertLiftProofWritesDisabled, getProofRuntimeConfig } from "./runtime-config.js";
+import { getProofAssetUploadRuntimeConfig, proofAssetUploadAllowed } from "./asset-upload-config.js";
 import { getProofOrder, listProofParticipants } from "./store.js";
 import { proofAutomaticRefreshState, queueProofSync } from "./sync-queue.js";
 import { identifyProofParticipant, publicProofActivity, publicProofParticipant } from "./participant-service.js";
@@ -173,7 +174,8 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   function revisionActor(session: Awaited<ReturnType<typeof validateProofSession>>["session"]) {
     if (
       !getProofRuntimeConfig().feature_flags.revision_upload ||
-      !getProofRuntimeConfig().feature_flags.public_read
+      !getProofRuntimeConfig().feature_flags.public_read ||
+      !proofAssetUploadAllowed(getProofAssetUploadRuntimeConfig(), session.capability?.proof_customer_id ?? "", session.order_number)
     ) {
       throw new ProofAssetUploadServiceError(
         "disabled",
@@ -260,7 +262,8 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         session.scope === "review" &&
         grant.capability?.access_mode === "review" &&
         proofRuntime.feature_flags.public_read &&
-        proofRuntime.feature_flags.revision_upload;
+        proofRuntime.feature_flags.revision_upload &&
+        proofAssetUploadAllowed(getProofAssetUploadRuntimeConfig(), grant.capability?.proof_customer_id ?? "", session.order_number);
       const publicOrder = toPublicProofOrder(order, session.scope, {
         include_asset_urls: !automaticRefresh.stale,
         decisions_enabled:

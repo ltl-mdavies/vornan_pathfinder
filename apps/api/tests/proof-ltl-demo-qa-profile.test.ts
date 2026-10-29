@@ -1,11 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getProofAssetUploadRuntimeConfig } from "../src/proof/asset-upload-config.ts";
+import { getProofAssetUploadRuntimeConfig, proofAssetUploadAllowed } from "../src/proof/asset-upload-config.ts";
 import { getProofLtlDemoQaProfile, ltlDemoQaOrderAllowed } from "../src/proof/ltl-demo-qa-profile.ts";
 import { getProofRuntimeConfig } from "../src/proof/runtime-config.ts";
 
 const now = new Date("2026-08-11T12:00:00.000Z");
 const scope = "true|2026-08-11T20:00:00.000Z|A0226753,A0227641|true|true|true|true";
+
+test("persistent review profile never grants an unbounded upload; exact QA window remains isolated", () => {
+  const env = {
+    PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: "true||LTL_DEMO_ALL|true|true|true|true|true",
+    PATHFINDER_PROOF_ASSET_BUCKET: "vornan-pathfinder-proof-assets-dev-744016783602"
+  };
+  const unbounded = getProofAssetUploadRuntimeConfig(env, now);
+  assert.equal(proofAssetUploadAllowed(unbounded, "1249", "A0232139", now), false);
+  const bounded = getProofAssetUploadRuntimeConfig({ ...env,
+    PATHFINDER_PROOF_ASSET_UPLOAD_QA_WINDOW: "2026-08-11T13:00:00Z|A0232139"
+  }, now);
+  assert.equal(proofAssetUploadAllowed(bounded, "1249", "A0232139", now), true);
+  assert.equal(proofAssetUploadAllowed(bounded, "1249", "A0233367", now), false);
+  assert.equal(proofAssetUploadAllowed(bounded, "9999", "A0232139", now), false);
+  assert.equal(proofAssetUploadAllowed(bounded, "1249", "A0232139", new Date("2026-08-11T13:00:00Z")), false);
+  assert.equal(proofAssetUploadAllowed({ ...bounded, enabled: false }, "1249", "A0232139", now), false);
+  assert.equal(proofAssetUploadAllowed({ ...bounded, bucket_name: null }, "1249", "A0232139", now), false);
+  assert.equal(getProofLtlDemoQaProfile(env, now).all_ltl_demo_orders, true);
+});
+
+test("invalid QA upload overrides never fall back to a valid broader profile", () => {
+  for (const window of [
+    "bad", "2026-08-11T13:00:00Z|LTL_DEMO_ALL", "2026-08-11T13:00:00Z|A0232139,A0233367",
+    "2026-08-11T12:00:00Z|A0232139", "2026-08-12T12:00:01Z|A0232139",
+    "2026-08-11T13:00:00|A0232139", "2026-08-11T13:00:00Z|A0232139|extra"
+  ]) {
+    const config = getProofAssetUploadRuntimeConfig({
+      PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: "true|2026-08-11T20:00:00Z|LTL_DEMO_ALL|true|true|true|true",
+      PATHFINDER_PROOF_ASSET_BUCKET: "vornan-pathfinder-proof-assets-dev-744016783602",
+      PATHFINDER_PROOF_ASSET_UPLOAD_QA_WINDOW: window
+    }, now);
+    assert.deepEqual(config.allowed_order_numbers, [], window);
+    assert.equal(proofAssetUploadAllowed(config, "1249", "A0232139", now), false, window);
+  }
+});
 
 test("activates one bounded customer-1249 profile with explicit demo orders", () => {
   const profile = getProofLtlDemoQaProfile(

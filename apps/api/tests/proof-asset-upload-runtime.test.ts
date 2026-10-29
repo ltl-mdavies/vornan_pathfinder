@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProofOrder } from "@pathfinder/proof-domain";
 import type { ProofAssetUploadRecord } from "@pathfinder/proof-domain/proof-asset-upload";
-import type { ProofAssetUploadRuntimeConfig } from "../src/proof/asset-upload-config.ts";
+import { getProofAssetUploadRuntimeConfig, type ProofAssetUploadRuntimeConfig } from "../src/proof/asset-upload-config.ts";
 import type { ProofOperatorActionQaConfig } from "../src/proof/operator-action-config.ts";
 import {
   createProofAssetUploadService,
@@ -123,6 +123,34 @@ const request = {
   sha256: checksum
 };
 
+test("bounded QA upload gate rejects every lifecycle operation before side effects outside its exact order/window", async () => {
+  for (const window of ["invalid", "2026-08-01T11:59:59Z|A0226753", "2026-08-01T13:00:00Z|A0232139"]) {
+    const calls: string[] = [];
+    const service = createProofAssetUploadService({
+      now: () => now,
+      runtimeConfig: () => getProofAssetUploadRuntimeConfig({
+        PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: "true||LTL_DEMO_ALL|true|true|true|true|true",
+        PATHFINDER_PROOF_ASSET_BUCKET: config().bucket_name!,
+        PATHFINDER_PROOF_ASSET_UPLOAD_QA_WINDOW: window
+      }, now),
+      syncOrder: async () => { calls.push("sync"); throw new Error("must not run"); },
+      getRecord: async () => { calls.push("record"); throw new Error("must not run"); },
+      reserve: async () => { calls.push("reserve"); throw new Error("must not run"); },
+      s3: { send: async () => { calls.push("s3"); throw new Error("must not run"); } }
+    });
+    const identity = { operator_uid: "operator-synthetic", correlation_id: "correlation-synthetic" };
+    const assetRequest = { order_number: request.order_number, asset_id: `passet_${"a".repeat(64)}` };
+    for (const operation of [
+      () => service.prepare({ ...identity, request }),
+      () => service.status({ request: assetRequest }),
+      () => service.finalize({ ...identity, request: assetRequest })
+    ]) {
+      await assert.rejects(operation, (error: unknown) => error instanceof ProofAssetUploadServiceError && ["disabled", "not_allowed"].includes(error.code));
+    }
+    assert.deepEqual(calls, [], window);
+  }
+});
+
 test("dark upload gate denies before Lift read, persistence, or S3", async () => {
   const calls: string[] = [];
   const service = createProofAssetUploadService({
@@ -152,6 +180,27 @@ test("dark upload gate denies before Lift read, persistence, or S3", async () =>
       error instanceof ProofAssetUploadServiceError && error.code === "disabled"
   );
   assert.deepEqual(calls, []);
+});
+
+test("customer upload gate rejects a different customer before prepare or finalize side effects", async () => {
+  const service = createProofAssetUploadService({
+    now: () => now, runtimeConfig: () => config(),
+    syncOrder: async () => { assert.fail("must not read Lift"); },
+    getRecord: async () => { assert.fail("must not read another customer's asset"); }
+  });
+  const identity = {
+    actor_context: {
+      actor_type: "customer_session" as const, source: "public_api" as const,
+      actor_id: "psession_synthetic", grant_id: "pgrant_synthetic001",
+      participant_id: "pparticipant_synthetic001", proof_customer_id: "9999"
+    }, correlation_id: "correlation-synthetic"
+  };
+  for (const operation of [
+    () => service.prepare({ ...identity, request }),
+    () => service.finalize({ ...identity, request: { order_number: request.order_number, asset_id: `passet_${"a".repeat(64)}` } })
+  ]) {
+    await assert.rejects(operation, (error: unknown) => error instanceof ProofAssetUploadServiceError && error.code === "not_allowed");
+  }
 });
 
 test("customer revised-art upload requires current feedback acknowledgement before any upload mutation", async () => {
