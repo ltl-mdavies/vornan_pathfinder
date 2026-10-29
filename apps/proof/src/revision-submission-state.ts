@@ -46,13 +46,13 @@ export function revisionSubmissionCopy(receipt: Pick<ProofRevisionSubmission, "s
   if (receipt?.state === "accepted") {
     return {
       title: "Artwork sent",
-      detail: "Awaiting updated proof. Your artwork was sent to the production team; the updated proof will appear here when it is ready.",
+      detail: "Your artwork was sent to the production team. Check the proof queue for any updated proof.",
       tone: "sent" as const
     };
   }
   return {
     title: "Submission not confirmed",
-    detail: "We could not confirm the submission. Your file is saved. Check status before taking another action; do not send the artwork again.",
+    detail: "We could not confirm this artwork submission. Your file is saved. Check its status here; do not send it again. You can continue reviewing other proofs.",
     tone: "uncertain" as const
   };
 }

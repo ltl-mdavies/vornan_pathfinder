@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { matchesRevisionIntent, readRevisionIntents, revisionIntentKey, revisionProtectsProof, revisionSubmissionCopy, saveRevisionIntent, type RevisionIntent } from "../src/revision-submission-state.ts";
 
-test("accepted transport waits for a proof without claiming file import", () => {
+test("accepted transport records sending without claiming file import or continued waiting", () => {
   const copy = revisionSubmissionCopy({ state: "accepted" });
   assert.equal(copy.title, "Artwork sent");
-  assert.match(copy.detail, /Awaiting updated proof/);
+  assert.match(copy.detail, /Check the proof queue for any updated proof/);
+  assert.doesNotMatch(copy.detail, /Awaiting updated proof/);
   assert.doesNotMatch(copy.detail, /imported|approved|received by Lift/i);
 });
 
@@ -39,7 +40,9 @@ test("submitted, checking, and lost receipts remain uncertain without a spinner 
     const copy = revisionSubmissionCopy(receipt);
     assert.equal(copy.title, "Submission not confirmed");
     assert.equal(copy.tone, "uncertain");
-    assert.match(copy.detail, /do not send the artwork again/);
+    assert.match(copy.detail, /do not send it again/);
+    assert.match(copy.detail, /continue reviewing other proofs/);
+    assert.doesNotMatch(copy.detail, /before taking another action/);
   }
 });
 
