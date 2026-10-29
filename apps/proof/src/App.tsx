@@ -2071,7 +2071,7 @@ export function App() {
                   </button>
                   <DetailedReportButton task={selectedTask} version={selectedVersion} />
                   {selectedAsset.download && <a className="button secondary" href={selectedAsset.download} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Download</a>}
-                  {selectedAsset.open && <a className="icon-button subtle" href={selectedAsset.open} target="_blank" rel="noreferrer" aria-label="Open proof in a new tab"><ExternalLink aria-hidden="true" /></a>}
+                  {selectedAsset.open && <a className="icon-button subtle proof-open-tab" href={selectedAsset.open} target="_blank" rel="noreferrer" aria-label="Open proof in a new tab" data-tooltip="Open proof in a new tab"><ExternalLink aria-hidden="true" /></a>}
                 </div>
               </div>
 

@@ -39,3 +39,10 @@ test("keeps viewer-control tooltips available on hover and keyboard focus", () =
   assert.match(styles, /\.proof-control-island button\[data-tooltip\]::after\s*\{[^}]*content:\s*attr\(data-tooltip\);/s);
   assert.match(styles, /button\[data-tooltip\]:hover:not\(:disabled\)::after,\s*\.proof-control-island button\[data-tooltip\]:focus-visible::after/s);
 });
+
+test("clarifies the new-tab link on hover and keyboard focus without changing sharing or navigation", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /className="icon-button subtle proof-open-tab"[^>]*target="_blank"[^>]*aria-label="Open proof in a new tab" data-tooltip="Open proof in a new tab"/);
+  assert.match(styles, /\.proof-open-tab\[data-tooltip\]::after\s*\{[^}]*right:\s*0;[^}]*top:\s*calc\(100% \+ 6px\);/s);
+  assert.match(styles, /\.proof-open-tab\[data-tooltip\]:hover::after,\s*\.proof-open-tab\[data-tooltip\]:focus-visible::after\s*\{\s*opacity:\s*1;/s);
+});
