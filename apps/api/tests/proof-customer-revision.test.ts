@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProofOrder, ProofAccessSession, ProofAuditEvent } from "@pathfinder/proof-domain";
-import { createCustomerRevisionService, revisionUploadOwnerAuditId } from "../src/proof/customer-revision-service.js";
+import { createCustomerRevisionService, revisionUploadOwnerAuditId, customerRevisionScopeAllowed } from "../src/proof/customer-revision-service.js";
 import type { RevisionSubmission } from "../src/proof/customer-revision-store.js";
 import { readyRevisionAsset } from "./fixtures/customer-revision-ready.js";
 
@@ -15,7 +15,7 @@ function fixture() {
   let saved: RevisionSubmission | null = null, enabled = true, accepted = false, collision = false, persistFailure = false, reads = 0;
   const sends: any[] = [];
   const service = createCustomerRevisionService({
-    enabled: () => enabled, runtime: () => ({ feature_flags: { public_read: true, revision_upload: true, approve: true } }) as never,
+    enabled: () => enabled, scopeAllowed: () => true, runtime: () => ({ feature_flags: { public_read: true, revision_upload: true, approve: true } }) as never,
     now: () => new Date("2026-10-28T12:01:00.000Z"),
     read: async () => saved ? structuredClone(saved) : null,
     list: async () => saved ? [structuredClone(saved)] : [],
@@ -86,6 +86,43 @@ test("lost-response recovery discovers only the current reviewer and task receip
     { ...f.session, capability: { ...f.session.capability!, proof_customer_id: "999" } }
   ]) assert.deepEqual(await f.service.list({ ...f.context, session, task_id: f.task.task_id }), []);
   assert.deepEqual(await f.service.list({ ...f.context, task_id: "another-task" }), []);
-  f.disable(); await assert.rejects(f.service.list({ ...f.context, task_id: f.task.task_id }));
+  f.disable(); assert.equal((await f.service.list({ ...f.context, task_id: f.task.task_id })).length, 1);
+  await assert.rejects(f.submit()); // Read recovery remains available when writes are stopped.
+  assert.equal(f.sends.length, 1);
+});
+
+test("revision release scope is explicit, exact and fail closed", () => {
+  const { session } = fixture();
+  for (const scope of ["", "*", "1249:*", "1249:A0232139,", "999:A0232139"]) {
+    assert.equal(customerRevisionScopeAllowed({ ...session, order_number: "A0232139" }, { PATHFINDER_PROOF_CUSTOMER_REVISION_SCOPE: scope }), false);
+  }
+  assert.equal(customerRevisionScopeAllowed({ ...session, order_number: "A0232139" }, { PATHFINDER_PROOF_CUSTOMER_REVISION_SCOPE: "1249:A0232139" }), true);
+  assert.equal(customerRevisionScopeAllowed({ ...session, order_number: "A0233367" }, { PATHFINDER_PROOF_CUSTOMER_REVISION_SCOPE: "1249:A0232139" }), false);
+});
+
+test("a denied revision scope rejects both reads and writes before provider access", async () => {
+  const f = fixture();
+  const service = createCustomerRevisionService({ enabled: () => true, scopeAllowed: () => false,
+    runtime: () => ({ feature_flags: { public_read: true, revision_upload: true, approve: true } }) as never,
+    sync: async () => { assert.fail("must not access Lift"); },
+    list: async () => { assert.fail("must not access receipts"); } });
+  await assert.rejects(service.submit({ ...f.context, request: f.request }), /not enabled for this order/);
+  await assert.rejects(service.list(f.context), /not enabled for this order/);
+});
+
+test("order receipt discovery survives removed or replaced tasks without claiming imported artwork", async () => {
+  const f = fixture(); const submitted = await f.submit();
+  f.order.tasks = []; // At7.01 Lift may return no current proof rows.
+  assert.deepEqual(await f.service.list(f.context), [submitted]);
+  f.order.tasks = [{ ...f.task, task_id: "new-proof-task", attachment_id: "999", current_version: { ...f.task.current_version, version_id: "new-proof-version" } } as never];
+  assert.deepEqual(await f.service.list(f.context), [submitted]);
+  assert.equal(submitted.lift_outcome_confirmed, false);
+  assert.equal(f.sends.length, 1);
+  assert.equal(f.reads, 1); // Recovery does not synchronize or submit to Lift.
+  for (const patch of [{ grant_id: "other" }, { participant_id: "other" }, { order_number: "A0000000" },
+    { capability: { ...f.session.capability!, proof_customer_id: "999" } }]) {
+    assert.deepEqual(await f.service.list({ ...f.context, session: { ...f.session, ...patch } }), []);
+  }
+  f.disable(); assert.deepEqual(await f.service.list(f.context), [submitted]);
   assert.equal(f.sends.length, 1);
 });

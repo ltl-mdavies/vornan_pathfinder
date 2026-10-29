@@ -18,6 +18,7 @@ import { isLiftProofUpdatedError } from "./proof-update-state";
 import type { ProofTask } from "./types";
 
 type LocalStage = "select" | "hashing" | "uploading" | "finalizing" | "processing" | "error";
+type RevisionDraft = { file: File | null; stage: LocalStage; asset: ProofRevisionAsset | null; message: string | null; pollCount: number; note: string };
 const ASSET_ID = /^passet_[a-f0-9]{64}$/;
 
 interface RevisionUploadDialogProps {
@@ -26,6 +27,10 @@ interface RevisionUploadDialogProps {
   enabled: boolean;
   participantIdentified: boolean;
   feedbackAcknowledged: boolean;
+  submissionEnabled: boolean;
+  recoveryKey: string | null;
+  submissionBlocked: string | null;
+  onSubmitArtwork: (task: ProofTask, asset: ProofRevisionAsset, note: string) => Promise<void>;
   onClose: () => void;
   onSessionExpired: () => void;
   onProofUpdated: (task: ProofTask) => Promise<void>;
@@ -55,6 +60,10 @@ export function RevisionUploadDialog({
   enabled,
   participantIdentified,
   feedbackAcknowledged,
+  submissionEnabled,
+  recoveryKey,
+  submissionBlocked,
+  onSubmitArtwork,
   onClose,
   onSessionExpired,
   onProofUpdated,
@@ -72,6 +81,18 @@ export function RevisionUploadDialog({
   const [message, setMessage] = useState<string | null>(null);
   const [pollCount, setPollCount] = useState(0);
   const [dragActive, setDragActive] = useState(false);
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submitStarted = useRef(false);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const draftBinding = useRef<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  // File handles stay in memory, never serialized into browser storage. Bind
+  // each draft to its order, reviewer, task and version, not the selected line.
+  const drafts = useRef(new Map<string, RevisionDraft>());
+  const latestDraft = useRef<RevisionDraft>({ file, stage, asset, message, pollCount, note });
+  latestDraft.current = { file, stage, asset, message, pollCount, note };
   const busy = stage === "hashing" || stage === "uploading" || stage === "finalizing";
   const blockedMessage = !enabled
     ? "Revised artwork upload is not available in this review window."
@@ -91,6 +112,7 @@ export function RevisionUploadDialog({
     const element = dialog.current;
     if (!element) return;
     if (open && !element.open) {
+      returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       element.showModal();
       window.requestAnimationFrame(() => filePicker.current?.focus());
     }
@@ -98,23 +120,39 @@ export function RevisionUploadDialog({
   }, [open]);
 
   useEffect(() => {
-    setFile(null);
-    setStage("select");
-    setAsset(null);
-    setMessage(null);
-    setPollCount(0);
+    if (!task) return; // Closing preserves an unsent draft in this review window.
+    const binding = recoveryKey ?? `${task.task_id}:${task.current_version?.version_id}`;
+    if (draftBinding.current === binding) return;
+    if (draftBinding.current) drafts.current.set(draftBinding.current, latestDraft.current);
+    draftBinding.current = binding;
+    const saved = drafts.current.get(binding);
+    setFile(saved?.file ?? null);
+    setStage(saved?.stage ?? "select");
+    setAsset(saved?.asset ?? null);
+    setMessage(saved?.message ?? null);
+    setPollCount(saved?.pollCount ?? 0);
     setDragActive(false);
+    setNote(saved?.note ?? "");
+    try { if (!saved && recoveryKey) setNote(window.sessionStorage.getItem(`${recoveryKey}:note`) ?? ""); } catch { /* File picker remains available. */ }
+    setSubmitting(false);
+    submitStarted.current = false;
     dragDepth.current = 0;
     if (fileInput.current) fileInput.current.value = "";
-  }, [task?.task_id, task?.current_version?.version_id]);
+  }, [task?.task_id, task?.current_version?.version_id, recoveryKey]);
 
   useEffect(() => {
-    const recoveryAssetId = new URLSearchParams(window.location.search).get("retry_asset")?.trim() ?? "";
+    let recoveryAssetId = new URLSearchParams(window.location.search).get("retry_asset")?.trim() ?? "";
+    try { if (recoveryKey) recoveryAssetId = window.sessionStorage.getItem(recoveryKey) ?? recoveryAssetId; }
+    catch { setMessage("Saved upload status is unavailable in this browser."); }
     if (!open || asset || !ASSET_ID.test(recoveryAssetId)) return;
     let active = true;
     void loadRevisionUploadStatus(recoveryAssetId)
       .then((result) => {
         if (!active) return;
+        if (result.asset.task_id !== task?.task_id || result.asset.attachment_id !== task?.attachment_id) {
+          setMessage("This saved upload belongs to a different proof. Select the current artwork again.");
+          return;
+        }
         setAsset(result.asset);
         if (result.asset.state === "uploading") {
           setStage("error");
@@ -128,27 +166,32 @@ export function RevisionUploadDialog({
         if (error instanceof ProofApiError && error.status === 401) sessionExpired.current();
       });
     return () => { active = false; };
-  }, [asset, open]);
+  }, [asset, open, recoveryKey, task?.task_id, task?.attachment_id]);
 
   useEffect(() => {
     if (!open || !asset || asset.state === "ready_for_lift" || asset.verification_status === "quarantined" || (asset.verification_status === "cleared" && asset.publication_status === "not_started") || pollCount >= 24) return;
+    let active = true;
+    const binding = draftBinding.current;
     const timer = window.setTimeout(async () => {
       try {
         const result = await loadRevisionUploadStatus(asset.asset_id);
+        if (!active || draftBinding.current !== binding) return;
         setAsset(result.asset);
         setStage("processing");
         setPollCount((count) => count + 1);
       } catch (error) {
+        if (!active || draftBinding.current !== binding) return;
         if (error instanceof ProofApiError && error.status === 401) sessionExpired.current();
         setPollCount((count) => count + 1);
       }
     }, 5_000);
-    return () => window.clearTimeout(timer);
-  }, [asset, open, pollCount]);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [asset, open, pollCount, recoveryKey, task?.task_id, task?.current_version?.version_id]);
 
   const close = () => {
     if (busy) return;
     onClose();
+    window.requestAnimationFrame(() => { if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true }); });
   };
 
   const chooseFile = (next: File | null) => {
@@ -173,6 +216,8 @@ export function RevisionUploadDialog({
 
   const submit = async () => {
     if (!task?.attachment_id || !task.current_version || !file || busy) return;
+    const binding = draftBinding.current;
+    const stillCurrent = () => mounted.current && draftBinding.current === binding;
     const validation = validateRevisionFile(file);
     if (validation) {
       setStage("error");
@@ -185,6 +230,7 @@ export function RevisionUploadDialog({
     try {
       setStage("hashing");
       const digest = await sha256File(file);
+      if (!stillCurrent()) return;
       const identity = `${task.task_id}:${task.current_version.version_id}:${file.name}:${file.size}:${digest}`;
       const idempotencyKey = idempotencyKeys.current.get(identity)
         ?? `prevision_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -198,22 +244,28 @@ export function RevisionUploadDialog({
         content_length: file.size,
         sha256: digest
       });
+      if (!stillCurrent()) return;
       setAsset(prepared.asset);
+      if (recoveryKey) window.sessionStorage.setItem(recoveryKey, prepared.asset.asset_id);
       setStage("uploading");
       await uploadRevisionFile(prepared.upload, file);
+      if (!stillCurrent()) return;
       setStage("finalizing");
       const finalized = await finalizeRevisionUpload(prepared.asset.asset_id);
+      if (!stillCurrent()) return;
       setAsset(finalized.asset);
       setStage("processing");
       setPollCount(0);
       onUploadAccepted(task);
     } catch (error) {
+      if (!stillCurrent()) return;
       if (error instanceof ProofApiError && error.status === 401) {
         onSessionExpired();
         return;
       }
       if (isLiftProofUpdatedError(error)) {
         await onProofUpdated(task);
+        if (!stillCurrent()) return;
         onClose();
         return;
       }
@@ -224,14 +276,18 @@ export function RevisionUploadDialog({
 
   const retryFinalization = async () => {
     if (!asset || busy) return;
+    const binding = draftBinding.current;
+    const stillCurrent = () => mounted.current && draftBinding.current === binding;
     setMessage(null);
     try {
       setStage("finalizing");
       const finalized = await finalizeRevisionUpload(asset.asset_id);
+      if (!stillCurrent()) return;
       setAsset(finalized.asset);
       setStage("processing");
       setPollCount(0);
     } catch (error) {
+      if (!stillCurrent()) return;
       if (error instanceof ProofApiError && error.status === 401) {
         onSessionExpired();
         return;
@@ -242,6 +298,29 @@ export function RevisionUploadDialog({
   };
 
   const progress = asset ? revisionAssetProgress(asset) : null;
+  const readyToSubmit = Boolean(asset?.state === "ready_for_lift" && asset.publication_status === "delivery_verified" && asset.verification_status === "cleared");
+  const submitScopeBlocked = task && (task.sibling_count > 1 || (task.shared_line_numbers?.length ?? 0) > 1)
+    ? "Submitting revised artwork is available only for a single, unshared proof. Your uploaded file remains saved."
+    : task && (task.state !== "pending" || task.action_reconciliation_pending)
+      ? "This proof is not currently available for artwork submission."
+      : null;
+  const sendArtwork = async () => {
+    if (!task || !asset || !readyToSubmit || !submissionEnabled || submissionBlocked || submitScopeBlocked || blockedMessage || submitStarted.current) return;
+    const binding = draftBinding.current;
+    const stillCurrent = () => mounted.current && draftBinding.current === binding;
+    submitStarted.current = true; setSubmitting(true); setMessage(null);
+    try {
+      // Parent persists intent before the sole POST and owns saved-state recovery.
+      await onSubmitArtwork(task, asset, note);
+      if (!stillCurrent()) return;
+      onClose();
+    } catch (error) {
+      if (!stillCurrent()) return;
+      // Only local/preflight errors escape the parent; uncertain sends never do.
+      submitStarted.current = false;
+      setMessage(error instanceof Error ? error.message : "Artwork could not be prepared for submission.");
+    } finally { if (stillCurrent()) setSubmitting(false); }
+  };
   const currentFilename = task?.current_version?.filename ?? "Current proof";
   const currentPreview = task?.current_version?.preview_kind === "image"
     ? task.current_version.preview_url
@@ -258,7 +337,7 @@ export function RevisionUploadDialog({
       <div className="dialog-heading">
         <div>
           <span className="eyebrow">Revised artwork</span>
-          <h2 id="revision-upload-title">Upload revised artwork</h2>
+          <h2 id="revision-upload-title">{readyToSubmit && submissionEnabled ? "Submit revised artwork" : "Upload revised artwork"}</h2>
         </div>
         <button className="icon-button subtle" type="button" aria-label="Close revised artwork upload" disabled={busy} onClick={close}><X aria-hidden="true" /></button>
       </div>
@@ -270,13 +349,13 @@ export function RevisionUploadDialog({
           <span className="revision-current-copy">
             <small>Line {task?.line_number ?? "—"} · {task?.product_name ?? "Artwork proof"}</small>
             <strong title={currentFilename}>{currentFilename}</strong>
-            <em>Your upload will be used to prepare a new proof for this line.</em>
+            <em>Upload and check your file, then submit it to request a new proof for this line.</em>
           </span>
         </div>
         {asset && progress ? (
           <div className={`revision-upload-progress ${progress.tone}`} role="status">
             {progress.tone === "ready" || progress.tone === "stored" ? <CheckCircle2 aria-hidden="true" /> : progress.tone === "error" ? <LockKeyhole aria-hidden="true" /> : <LoaderCircle className="spinning" aria-hidden="true" />}
-            <span><strong>{progress.title}</strong><small>{progress.detail}</small><em>{asset.original_filename}</em></span>
+            <span><strong>{readyToSubmit && submissionEnabled ? "Ready to submit" : progress.title}</strong><small>{readyToSubmit ? "Your file passed its checks. It has not been sent to the production team." : progress.detail}</small><em>{asset.original_filename}</em></span>
           </div>
         ) : (
           <label
@@ -324,13 +403,22 @@ export function RevisionUploadDialog({
           </label>
         )}
         {blockedMessage ? <p className="revision-upload-message blocked"><LockKeyhole aria-hidden="true" /> {blockedMessage}</p> : null}
+        {readyToSubmit && submissionEnabled ? <label className="revision-submission-note">Note for the production team <span>Optional</span><textarea value={note} onChange={(event) => {
+          setNote(event.target.value);
+          try { if (recoveryKey) window.sessionStorage.setItem(`${recoveryKey}:note`, event.target.value); }
+          catch { setMessage("This browser could not save your note. Keep this window open until you submit."); }
+        }} maxLength={2000} disabled={submitting} rows={3} /></label> : null}
+        {asset && !submissionEnabled ? <p className="revision-upload-message">Your file is saved only. Submission to production is not enabled in this review.</p> : null}
+        {submissionBlocked ? <p className="revision-upload-message blocked">{submissionBlocked}</p> : null}
+        {submissionEnabled && submitScopeBlocked ? <p className="revision-upload-message blocked">{submitScopeBlocked}</p> : null}
         {stageCopy(stage) ? <p className="revision-upload-message" role="status"><LoaderCircle className="spinning" aria-hidden="true" /> {stageCopy(stage)}</p> : null}
         {message ? <p className="revision-upload-message error" role="alert">{message}</p> : null}
       </div>
       <div className="revision-upload-actions">
-        <button className="button secondary" type="button" disabled={busy} onClick={close}>{asset ? "Done" : "Cancel"}</button>
+        <button className="button secondary" type="button" disabled={busy} onClick={close}>{asset ? "Close" : "Cancel"}</button>
         {!asset ? <button className="button primary" type="button" disabled={!file || Boolean(blockedMessage) || Boolean(message) || busy} onClick={() => void submit()}>{busy ? stage === "hashing" ? "Checking file…" : "Uploading…" : "Upload and check file"}</button> : null}
         {asset && stage === "error" ? <button className="button primary" type="button" disabled={busy} onClick={() => void retryFinalization()}>Retry file check</button> : null}
+        {readyToSubmit && submissionEnabled ? <button className="button primary" type="button" disabled={busy || submitting || Boolean(blockedMessage) || Boolean(submissionBlocked) || Boolean(submitScopeBlocked)} onClick={() => void sendArtwork()}>{submitting ? "Sending…" : "Submit artwork"}</button> : null}
       </div>
     </dialog>
   );

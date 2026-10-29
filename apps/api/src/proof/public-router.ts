@@ -33,7 +33,7 @@ import {
 import type { ProofCustomerCapabilityAuthorityReader } from "./customer-capability-authority.js";
 import { ProofDetailedReportError, proofDetailedReportService } from "./detailed-report-service.js";
 import { customerAllocationService, customerAllocationsEnabled, customerAllocationScopeAllowed } from "./customer-quantity-service.js";
-import { customerRevisionService } from "./customer-revision-service.js";
+import { customerRevisionService, customerRevisionSubmissionEnabled, customerRevisionScopeAllowed } from "./customer-revision-service.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -284,7 +284,9 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
           ...publicOrder,
           access: {
             ...publicOrder.access,
-            revision_upload_enabled: revisionUploadEnabled
+            revision_upload_enabled: revisionUploadEnabled,
+            revision_recovery_enabled: session.scope === "review" && grant.capability?.access_mode === "review" && proofRuntime.feature_flags.public_read && customerRevisionScopeAllowed(session),
+            revision_submission_enabled: revisionUploadEnabled && publicOrder.access.decisions_enabled && customerRevisionSubmissionEnabled() && customerRevisionScopeAllowed(session)
           },
           health: automaticRefresh.stale && publicOrder.health === "active" ? "stale" : publicOrder.health,
           tasks: publicOrder.tasks.map((task) => ({ ...task, ...feedbackStates.get(task.task_id) }))
@@ -489,6 +491,15 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   });
 
   // Separate from upload/finalize: file readiness is not a Lift submission.
+  // The original task may disappear at 7.01; order-scoped discovery retains
+  // the same grant/participant boundaries without depending on current tasks.
+  router.get("/revised-art/submissions", async (req, res) => {
+    try {
+      const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
+      const submissions = await revisionSubmissions.list({ session, correlation_id: req.get("x-request-id") ?? `proof-revision-${session.session_id}` });
+      res.json({ submissions });
+    } catch (error) { handlePublicError(error, res, "Revised artwork submission status is unavailable."); }
+  });
   router.get("/tasks/:taskId/revised-art/submissions", async (req, res) => {
     try {
       const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);

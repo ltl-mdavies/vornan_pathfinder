@@ -57,6 +57,7 @@ import { preserveDisplayedHistoryAssets, preserveDisplayedProofAssets, proofOrde
 import { DetailedReportButton } from "./detailed-report-button";
 import { isLiftProofUpdatedError, PROOF_UPDATED_MESSAGE, replacementProofTaskId } from "./proof-update-state";
 import { RevisionUploadDialog } from "./revision-upload-dialog";
+import { RevisionSubmissionProgress, useRevisionSubmissions } from "./revision-submission-progress";
 import { AllocationProgress } from "./creative-approval-progress";
 import type { AllocationSubmission } from "./api";
 import { usesAdvancedQuantityAllocation } from "./review-experience";
@@ -1504,6 +1505,8 @@ export function App() {
 
   const order = loadState.status === "ready" ? loadState.order : null;
   const participant = loadState.status === "ready" ? loadState.participant : null;
+  const revisionSubmissions = useRevisionSubmissions(order?.order_number ?? null, participant?.participant_id ?? null,
+    Boolean(order?.access.revision_recovery_enabled), Boolean(order?.access.revision_submission_enabled), terminateSession);
   const activity = loadState.status === "ready"
     ? loadState.activity
     : { identified_reviewers: 0, last_activity_at: null, reviewer_names_visible: false as const };
@@ -1944,6 +1947,7 @@ export function App() {
       </section>
 
       <div className="notice-stack">
+        <RevisionSubmissionProgress model={revisionSubmissions} />
         {!demoEnabled && order!.access.allocation_enabled && participant ? <AllocationProgress
           key={`${order!.order_number}:${participant.participant_id}`}
           request={allocationRequest}
@@ -2109,7 +2113,7 @@ export function App() {
                 allocationInProgress={(selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? ""))}
                 onApproveAllocation={approveAllocation}
                 decisionsEnabled={order!.access.decisions_enabled}
-                freshnessBlocked={freshnessBlocked ?? ((selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? "")) ? "Creative approvals are being confirmed. Use View status to follow their progress." : null)}
+                freshnessBlocked={freshnessBlocked ?? revisionSubmissions.blocked(selectedTask) ?? ((selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? "")) ? "Creative approvals are being confirmed. Use View status to follow their progress." : null)}
                 reviewExperience={order!.access.review_experience}
                 revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                 participantIdentified={Boolean(participant)}
@@ -2201,7 +2205,7 @@ export function App() {
                   allocationInProgress={group.tasks.some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? ""))}
                   onApproveAllocation={approveAllocation}
                   decisionsEnabled={order!.access.decisions_enabled}
-                  freshnessBlocked={freshnessBlocked ?? ((selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? "")) ? "Creative approvals are being confirmed. Use View status to follow their progress." : null)}
+                  freshnessBlocked={freshnessBlocked ?? revisionSubmissions.blocked(selectedTask) ?? ((selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? "")) ? "Creative approvals are being confirmed. Use View status to follow their progress." : null)}
                   reviewExperience={order!.access.review_experience}
                   revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                   participantIdentified={Boolean(participant)}
@@ -2380,12 +2384,19 @@ export function App() {
         enabled={Boolean(order?.access.revision_upload_enabled)}
         participantIdentified={Boolean(participant)}
         feedbackAcknowledged={Boolean(revisionUploadTask?.feedback_acknowledged)}
+        submissionEnabled={Boolean(order?.access.revision_submission_enabled)}
+        recoveryKey={order && participant && revisionUploadTask?.current_version ? `proof:revision-upload:v1:${order.order_number}:${participant.participant_id}:${revisionUploadTask.task_id}:${revisionUploadTask.current_version.version_id}` : null}
+        submissionBlocked={freshnessBlocked ?? (revisionUploadTask ? revisionSubmissions.blocked(revisionUploadTask) : null)}
+        onSubmitArtwork={async (task, asset, note) => {
+          await revisionSubmissions.submit(task, asset, note);
+          setRevisionUploadTaskId(null);
+        }}
         onClose={() => setRevisionUploadTaskId(null)}
         onSessionExpired={terminateSession}
         onProofUpdated={refreshAfterLiftProofUpdate}
         onUploadAccepted={(task) => setActionOutcome({
-          title: `Line ${task.line_number ?? "—"} revised artwork received`,
-          detail: "The current proof will leave Open proofs while Vornan prepares the replacement."
+          title: `Line ${task.line_number ?? "—"} artwork uploaded`,
+          detail: "Your file is saved for checking. It has not been submitted to production."
         })}
       />
 

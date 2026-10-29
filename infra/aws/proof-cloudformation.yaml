@@ -71,6 +71,16 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: Enable durable multi-creative quantity approvals only for authorized Advanced review sessions.
+  CustomerRevisionSubmissionEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled revised-art submission; requires existing approval/upload authority and exact release scope.
+  CustomerRevisionScope:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{1,20}:A[0-9]{7,8}(,[0-9]{1,20}:A[0-9]{7,8}){0,24}$"
+    Description: Exact customer-id:order-number revision pairs; retain scope when disabling writes to permit receipt recovery.
   CustomerAllocationScope:
     Type: String
     Default: ""
@@ -362,6 +372,21 @@ Rules:
             - !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
             - !Equals [!Ref LtlDemoQaCustomerApprovalEnabled, "true"]
         AssertDescription: Creative quantity approvals require the existing customer approval gate or the bounded LTL Demo approval profile.
+  CustomerRevisionSubmissionRequiresAuthority:
+    RuleCondition: !Equals [!Ref CustomerRevisionSubmissionEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref CustomerRevisionScope, ""]]
+        AssertDescription: Revised-art submission requires an exact customer/order release scope.
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref CustomerApprovalEnabled, "true"]
+            - !Equals [!Ref CustomerRevisionUploadEnabled, "true"]
+          - !And
+            - !Equals [!Ref LtlDemoQaEnabled, "true"]
+            - !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
+            - !Equals [!Ref LtlDemoQaCustomerApprovalEnabled, "true"]
+            - !Equals [!Ref LtlDemoQaRevisionUploadEnabled, "true"]
+        AssertDescription: Revised-art submission requires both approval and upload authority through the existing customer gates or bounded LTL Demo profile.
   CustomerApprovalRequiresExactRuntimeBindings:
     RuleCondition: !Equals [!Ref CustomerApprovalEnabled, "true"]
     Assertions:
@@ -1059,6 +1084,8 @@ Resources:
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: !Ref PublicReadEnabled
           PATHFINDER_PROOF_ENABLE_CUSTOMER_ALLOCATIONS: !Ref CustomerAllocationEnabled
           PATHFINDER_PROOF_CUSTOMER_ALLOCATION_SCOPE: !Ref CustomerAllocationScope
+          PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_SUBMISSION: !Ref CustomerRevisionSubmissionEnabled
+          PATHFINDER_PROOF_CUSTOMER_REVISION_SCOPE: !Ref CustomerRevisionScope
           PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join
             - "|"
             - - !Ref LtlDemoQaEnabled

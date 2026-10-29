@@ -45,6 +45,16 @@ on:
         type: choice
         default: "false"
         options: ["false", "true"]
+      customer_revision_submission_enabled:
+        description: "Enable revised-art submission within the exact customer/order scope"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
+      customer_revision_scope:
+        description: "Exact customer-id:order-number pairs; retain for receipt recovery when writes are disabled"
+        required: false
+        default: ""
       customer_allocation_scope:
         description: "Exact customer-id:order-number pairs; empty denies all allocations"
         required: false
@@ -216,6 +226,8 @@ jobs:
           CUSTOMER_APPROVAL_ENABLED: ${{ inputs.customer_approval_enabled }}
           CUSTOMER_ALLOCATION_ENABLED: ${{ inputs.customer_allocation_enabled }}
           CUSTOMER_ALLOCATION_SCOPE: ${{ inputs.customer_allocation_scope }}
+          CUSTOMER_REVISION_SUBMISSION_ENABLED: ${{ inputs.customer_revision_submission_enabled }}
+          CUSTOMER_REVISION_SCOPE: ${{ inputs.customer_revision_scope }}
           CUSTOMER_REVISION_UPLOAD_ENABLED: ${{ inputs.customer_revision_upload_enabled }}
           LTL_DEMO_QA_ENABLED: ${{ inputs.ltl_demo_qa_enabled }}
           LTL_DEMO_QA_PERSISTENT_ENABLED: ${{ inputs.ltl_demo_qa_persistent_enabled }}
@@ -279,6 +291,8 @@ jobs:
               CustomerApprovalEnabled="${CUSTOMER_APPROVAL_ENABLED}" \
               CustomerAllocationEnabled="${CUSTOMER_ALLOCATION_ENABLED}" \
               CustomerAllocationScope="${CUSTOMER_ALLOCATION_SCOPE}" \
+              CustomerRevisionSubmissionEnabled="${CUSTOMER_REVISION_SUBMISSION_ENABLED}" \
+              CustomerRevisionScope="${CUSTOMER_REVISION_SCOPE}" \
               CustomerRevisionUploadEnabled="${CUSTOMER_REVISION_UPLOAD_ENABLED}" \
               ProofAssetUploadEnabled="${PROOF_ASSET_UPLOAD_ENABLED}" \
               ProofAssetUploadAllowedOrders="${PROOF_ASSET_UPLOAD_ALLOWED_ORDERS}" \

@@ -103,7 +103,8 @@ test("keeps an acted-on line in context and explains why it moved out of Open pr
   assert.match(appSource, /Line \$\{task\.line_number \?\? "—"\} approved/);
   assert.match(appSource, /change request sent/);
   assert.match(appSource, /action-outcome-notice/);
-  assert.match(appSource, /The current proof will leave Open proofs while Vornan prepares the replacement/);
+  assert.match(appSource, /Your file is saved for checking\. It has not been submitted to production/);
+  assert.doesNotMatch(appSource, /The current proof will leave Open proofs while Vornan prepares the replacement/);
 });
 
 test("makes the change-request return control read as a backward navigation affordance", () => {
@@ -136,7 +137,7 @@ test("keeps revised artwork in its upload lifecycle with an accessible customer 
   assert.match(revisionDialogSource, /idempotencyKeys = useRef\(new Map<string, string>\(\)\)/);
   assert.match(revisionDialogSource, /task\.task_id.*task\.current_version\.version_id.*file\.name.*file\.size.*digest/);
   assert.match(revisionDialogSource, /Upload revised artwork/);
-  assert.match(revisionDialogSource, /Your upload will be used to prepare a new proof for this line/);
+  assert.match(revisionDialogSource, /Upload and check your file, then submit it to request a new proof for this line/);
   assert.match(revisionDialogSource, /Drop revised artwork here/);
   assert.match(revisionDialogSource, /onDrop=\{handleDrop\}/);
   assert.match(revisionDialogSource, /Choose a different file/);

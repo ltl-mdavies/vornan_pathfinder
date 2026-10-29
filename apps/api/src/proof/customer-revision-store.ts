@@ -8,6 +8,7 @@ export type RevisionSubmission = {
   submission_id: string; request_hash: string; order_number: string; customer_id: string;
   grant_id: string; participant_id: string; task_id: string; attachment_id: string; version_id: string;
   asset_id: string; filename: string; source_sha256: string; outbound_sha256: string;
+  line_number?: string | null; proof_filename?: string | null;
   delivery_url_sha256: string; source_version_hash: string; outbound_version_hash: string;
   state: "submitted" | "checking" | "accepted";
   record_version: number; created_at: string; updated_at: string;

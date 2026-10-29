@@ -228,6 +228,58 @@ export async function loadRevisionUploadStatus(assetId: string) {
   );
 }
 
+export interface ProofRevisionSubmission {
+  submission_id: string;
+  task_id: string;
+  attachment_id: string;
+  version_id: string;
+  asset_id: string;
+  filename: string;
+  line_number?: string | null;
+  proof_filename?: string | null;
+  state: "submitted" | "checking" | "accepted";
+  automatic_retry: false;
+  lift_outcome_confirmed: false;
+}
+
+/** Recovery is read-only, including when the original proof task disappears. */
+export const loadRevisionSubmissions = () => boundedRevisionRequest((signal) => api<{ submissions: ProofRevisionSubmission[] }>(
+  "/api/public/proof/revised-art/submissions", { signal }
+));
+
+export const loadRevisionSubmission = (submissionId: string) => boundedRevisionRequest((signal) => api<{ submission: ProofRevisionSubmission }>(
+  `/api/public/proof/revised-art/submissions/${encodeURIComponent(submissionId)}`, { signal }
+));
+
+/** Abort I/O and independently settle the UI even if a transport ignores abort. */
+export async function boundedRevisionRequest<T>(request: (signal: AbortSignal) => Promise<T>, timeoutMs = 20_000): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([Promise.resolve().then(() => request(controller.signal)), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error("Artwork status could not be confirmed in time.")); }, timeoutMs);
+    })]);
+  } finally { if (timer !== undefined) clearTimeout(timer); }
+}
+
+/** Call only on an explicit user submission; status checks must never call this. */
+export async function submitRevisionArtwork(input: {
+  task_id: string;
+  asset_id: string;
+  attachment_id: string;
+  expected_task_version: number;
+  expected_version_id: string;
+  idempotency_key: string;
+  note?: string | null;
+}) {
+  const { task_id, ...body } = input;
+  return boundedRevisionRequest((signal) => api<{ submission: ProofRevisionSubmission }>(
+      `/api/public/proof/tasks/${encodeURIComponent(task_id)}/revised-art/submissions`,
+      { method: "POST", body: JSON.stringify(body), signal },
+      true
+    ));
+}
+
 export async function startDetailedReport(taskId: string, definitionId: string) {
   return api<{ report: ProofDetailedReport }>(
     `/api/public/proof/tasks/${encodeURIComponent(taskId)}/detailed-reports/${encodeURIComponent(definitionId)}`,

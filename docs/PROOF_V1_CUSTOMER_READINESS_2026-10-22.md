@@ -111,6 +111,21 @@ and positive-quantity validation. Development remains deployment owner.
 
 ### Implementation and fresh evidence
 
+#### Revised-art contract refinement — October 29, 1:08 PM Eastern
+
+Marcus clarified that Lift does not provide a response proving import of the exact revised artwork. Production returns the rejected line to7.01 (PDF Proof), prepares a replacement and moves it to7.02 (Approve Art). Fresh read17:08:24Z confirms A0232139 line3/10203616 at7.01/id1042 with zero ProofReport rows; Orders has no attachment-association fields for that line. This evidence does NOT establish physical attachment deletion or imported-file association.
+
+Pathfinder UX approved the following interaction contract **for implementation behind the disabled submission gate**, not activation. This supersedes the earlier requirement to wait for a nonexistent provider import receipt before designing the UI:
+
+- Verified upload: **Ready to submit**, explicit **Submit artwork**. Upload/check completion alone never changes the proof's review lifecycle.
+- Positive transport response: **Artwork sent · Awaiting updated proof**. This describes transmission only, not Lift's file import, production approval, or a replacement being ready.
+- Lost/unknown outcome: **Submission not confirmed**, calm explanation, **Check status** and **Close**. Checks read saved receipt/status only; never resend or auto-retry the Lift action. No permanent spinner or invented support destination.
+- At7.01: **Awaiting updated proof**. Preserve receipt and audit independently of missing current-proof rows.
+- When authoritative current-proof data becomes available at7.02: display the new proof as a new reviewable version. Its appearance does not confirm which submitted file was imported or rewrite the original uncertain receipt into success.
+- Close/reopen/reload must recover the exact submitted proof/replacement context, including when the original task is no longer current. Retain no-replay protection, same grant/participant upload ownership, current-art/feedback validation and single/unshared-proof restriction.
+
+Remaining implementation: customer Submit artwork UI, order-scoped receipt discovery/recovery after task replacement, saved-state dock and truthful upload-only messaging; readiness/transport/unknown/reopened/new-proof visual and keyboard tests; supervised disposable-file handoff and production-generated replacement verification. New scope must stay separate from the allocation release. Revised-art remains OFF. A new pending single proof on line3 will be needed for its future live handoff test; the currently waiting line cannot be treated as an actionable original proof.
+
 - **Final recovery follow-up:** paused batch + stale pending order projection exposed staging for an already-confirmed attachment. Backend claims still prevented duplicate sends. UI now retains protection for confirmed AND submitted entries; unsent entries are not independently claimed by this UI rule. Existing grouped saved-status dock replaces staging when any protected creative remains in that group.
 - Expired allocation sessions now show an explicit re-entry heading/instruction, with no Check status/advance control while expired. Escape/Close returns keyboard focus to the recreated View status control instead of the page body.
 - Local Chrome verified paused close/reopen and reload, no repeat-action staging, expired guidance, Tab/Escape focus, 1366×768/1920×1080, 720×450 reflow and390×844 mobile. No horizontal page overflow at narrow sizes. These are isolated fixture tests, not live Lift actions or a full screen-reader/physical-browser-zoom certification. 86 UI tests and TypeScript/production build pass. Backend deployment remains with Development; revised-art remains disabled pending provider confirmation contract.
@@ -491,3 +506,16 @@ requires a particular proxy-trust configuration. Proof's public app does not set
 `trust proxy` or use client IP as authorization. Track compatible dependency
 patches separately across the shared workspace; this is scoped triage, not a
 blanket security certification.
+
+## Revised-art completion checkpoint — October 29, 18:34 UTC
+
+This checkpoint supersedes historical pending statements above only where explicitly verified here.
+
+- Multi-creative live QA passed on disposable A0232139: one 5/7 submission resulted in approved quantities 5 and 7 on lines 5 and 4. No duplicate actions. Scope remains `1249:A0232139`, not a customer launch.
+- File History status gating is deployed in main `7db62813682ee143d1b6948a6259fc07efb36d42`. Authenticated checks confirmed pending line 3 has no false approval timestamp, approved line 4 retains its approval details, and custom PDF controls remain intact. Durable closure: `proof/releases/history-status-ac710c9f964ab12ec8b5d3ae5d3abd278a10cabc/closure.md`.
+- Revised-art UI/backend candidate `354f590` is implemented but not deployed or activated. It requires an explicit submit after verified upload readiness, records intent before the sole POST, and offers read-only receipt recovery after uncertainty, reload, or removal of the old task. Exact old attachment/version remains protected; a genuinely new proof can be reviewed independently. A new proof is not evidence that the exact submitted file was imported.
+- Candidate checks: 96 Proof UI tests; Proof TypeScript/build; 226 full Proof API tests (before the final UI-only strip copy adjustment). Development independently verified the timeout and Advanced upload-only compatibility fixes. Public-only deployment wiring `24520b6` defaults submission false and scope empty; its 180 deployment contracts passed in Development's isolated branch.
+- Local browser evidence covers ready, sent, unknown response, reload, removed original task, new proof, never-responding GET, and 390px recovery layout. GET/POST settle after 20 seconds without retry. Existing Advanced upload-only entry behavior is preserved. These use a synthetic local fixture, not live revised-art delivery.
+- Actual Chrome 200% live Proof check: no horizontal overflow at 888 CSS pixels; keyboard File History opened with Enter and closed with Escape. Browser zoom restored to 100%. This is a focused accessibility smoke, not a full screen-reader certification.
+- Final screenshots are under the existing `allocation-qa-oct29` evidence directory, named `revision-{ready,sent,unknown,removed,new-proof}-{1366,1920}.jpg`, plus recovery, timeout, mobile and `proof-live-200-percent.jpg` evidence. Final exact-revision UX approval is pending.
+- Remaining: exact UX approval; coordinated narrow deployment with gates off; fresh line 3 preflight followed by authorized A0232139-only live revised-art QA; manual Lift-side verification of the exact synthetic file if no API receipt exists; customer launch cohort/capability decision. No live revised-art mutation occurred during this checkpoint.
