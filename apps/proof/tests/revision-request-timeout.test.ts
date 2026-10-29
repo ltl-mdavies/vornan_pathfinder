@@ -16,6 +16,10 @@ test("unsent drafts remain in memory per proof binding across task switches", ()
   assert.match(upload, /setNote\(saved\?\.note \?\? ""\)/);
   assert.doesNotMatch(upload, /sessionStorage\.setItem\([^\n]*JSON\.stringify\([^\n]*file/);
 });
+test("multiple receipt cards keep content-sized rows inside a scrolling dialog", () => {
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.revision-status-content \{[^}]*grid-auto-rows: max-content;[^}]*overflow-y: auto;/);
+});
 test("successful or failed I/O is never retried by the timeout guard", async () => {
   let calls = 0;
   assert.equal(await boundedRevisionRequest(async () => { calls++; return "saved"; }, 100), "saved");
