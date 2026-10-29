@@ -405,7 +405,7 @@ function QuantityAssignmentDialog({ tasks, values, mobile, open, onChange, onClo
         </div>
         <div>
           <button className="button secondary" type="button" onClick={clear}>Clear all</button>
-          <button className="button secondary" type="button" disabled={!summary.complete} onClick={done}>Done</button>
+          <button className="button secondary" type="button" disabled={!summary.complete} onClick={done}>Save quantities</button>
           <button className="button primary" type="button" disabled={!summary.complete || !reviewEnabled} onClick={review}><ShieldCheck aria-hidden="true" /> Continue to review</button>
         </div>
       </div>
@@ -904,11 +904,16 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     }
   };
   return (
-    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"} ${approvedProof ? "approved" : ""}`} aria-label={approvedProof ? "Proof approval status" : "Proof decision actions"} aria-describedby={approvedProof || mobile ? undefined : "action-lock-message"}>
+    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"} ${approvedProof ? "approved" : ""}`} aria-label={approvedProof ? "Proof approval status" : "Proof decision actions"} aria-describedby={approvedProof || allocationInProgress || mobile ? undefined : "action-lock-message"}>
       {approvedProof ? (
         <div className="decision-status-card approved-decision" role="status">
           <span><CheckCircle2 aria-hidden="true" /></span>
           <span><strong>Approved</strong><small>This proof has been approved.</small></span>
+        </div>
+      ) : allocationInProgress ? (
+        <div className="decision-status-card" role="status">
+          <span><LockKeyhole aria-hidden="true" /></span>
+          <span><strong>Creative approval status</strong><small>Your approval submission is saved. Use View status for the latest result.</small></span>
         </div>
       ) : <>
       <div className="decision-heading">
@@ -1944,7 +1949,7 @@ export function App() {
           request={allocationRequest}
           onPendingChange={setPendingCreativeAttachments}
           onClose={() => setAllocationRequest(null)}
-          onComplete={() => { void loadProofOrder().then(applyProofLoad).catch(() => undefined); }}
+          onComplete={async () => { applyProofLoad(await loadProofOrder()); }}
         /> : null}
         {refreshState === "error" ? (
           <div className="order-health-notice refresh-error-notice" role="alert">
@@ -2101,7 +2106,7 @@ export function App() {
                 onSaveDraft={(draft) => saveQuantityReview(selectedGroup?.group_id ?? selectedTask.task_id, draft)}
                 demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
                 allocationEnabled={Boolean(order!.access.allocation_enabled)}
-                allocationInProgress={pendingCreativeAttachments.length > 0}
+                allocationInProgress={(selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? ""))}
                 onApproveAllocation={approveAllocation}
                 decisionsEnabled={order!.access.decisions_enabled}
                 freshnessBlocked={freshnessBlocked ?? ((selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? "")) ? "Creative approvals are being confirmed. Use View status to follow their progress." : null)}
@@ -2193,7 +2198,7 @@ export function App() {
                   onSaveDraft={(draft) => saveQuantityReview(group.group_id, draft)}
                   demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
                   allocationEnabled={Boolean(order!.access.allocation_enabled)}
-                  allocationInProgress={pendingCreativeAttachments.length > 0}
+                  allocationInProgress={group.tasks.some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? ""))}
                   onApproveAllocation={approveAllocation}
                   decisionsEnabled={order!.access.decisions_enabled}
                   freshnessBlocked={freshnessBlocked ?? ((selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? "")) ? "Creative approvals are being confirmed. Use View status to follow their progress." : null)}

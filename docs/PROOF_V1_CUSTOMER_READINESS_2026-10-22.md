@@ -4,8 +4,52 @@
 
 **Candidate only; not deployed.** Marcus explicitly authorized approvals, change
 requests and synthetic revised-art uploads on **A0232139**. That permission does
-not activate a customer cohort or authorize actions on another order. No live
-actions, uploads, grants or configuration changes were performed in this pass.
+not activate a customer cohort or authorize actions on another order. The
+12:09 PM Eastern checkpoint below records the subsequently authorized live
+customer-path actions. No deployment or configuration change was performed.
+
+### Live customer-path QA — October 29, 12:09 PM Eastern
+
+- Source-neutral LTL Demo order history successfully synchronized A0232139
+  through its verified customer 1249 boundary (4/4 line reads, six pending
+  proofs, zero warnings). Unlike generic sync, this exposed the existing
+  customer QA launch control. An expired Pathfinder Firebase session was
+  recovered by ordinary page reload; no authentication settings changed.
+- Human explicitly approved creating the order-only QA review access link.
+  Used **Open LTL Demo customer QA** once; no email, policy override, general
+  customer activation, or operator-execution unlock. Synthetic reviewer:
+  `Vornan QA (Codex)` with reserved invalid-domain QA email. No raw access token
+  is recorded in this handoff.
+- **Single approval PASS:** line 2 / order-line 10203615 / attachment 28234854.
+  One UI approval submission with a QA/do-not-produce note. Fresh authoritative
+  Lift read at 16:06:50Z confirmed APPROVED; follow-up order read showed step10.
+  Customer UI showed 1/6 approved, Approved queue contained line2, and approval
+  persisted after full reload. No duplicate/retry approval was sent.
+- **Production change request PASS:** line 3 / order-line 10203616 /
+  attachment 28234858. Empty-note submission was disabled. Sent one specific
+  synthetic QA change request with a do-not-produce instruction. Fresh Lift
+  read at16:09:21Z showed step7.01/id1042 and a successful zero-row ProofReport
+  for that line. UI showed Awaiting proof and disabled actions after reload.
+  This is NOT revised-art upload/consumption certification. A new current proof
+  is now needed on line3 before testing its upload flow.
+- **Shared-art safety observed:** lines1/4 remain pending and show the shared
+  relationship. Their action buttons remain disabled in the simple profile.
+  Both use attachments28234851/28493003; no shared-art action attempted. The
+  requested independent 5/7 test still requires two line4-only attachments and
+  the coordinated advanced/allocation candidate deployment.
+- **Provider timestamp caveat:** line2 PROOF_APPROVED_TS remained
+  `29-OCT-2026 11:39:22 AM` although this approval occurred about12:06PM Eastern;
+  PROOF_APPROVED_BY returned MARCUS rather than the QA participant. Pending
+  rows also had non-null approval timestamps. Status transition is confirmed,
+  but timestamp/by fields must not be treated as a precise correlated receipt
+  without provider clarification. Application audit identity is separate.
+- Evidence: `/private/tmp/proof-qa-line2-approved-20261029.jpg` and
+  `/private/tmp/proof-qa-line3-change-request-20261029.jpg`. Read-only source
+  checks omitted signed URLs/credentials. A0233367 was not changed.
+- UX follow-up: after change request, toast says no longer open while the
+  waiting line remains in Open (open work); viewer also says Preview unavailable
+  below the correct preparing-proof explanation. Improve this copy/empty state
+  without changing the successful action/reconciliation semantics.
 
 The independent candidate was rebased onto verified GitHub main
 `344c2416cd87342d940b533f1c8eb0e9d6fb65ae`, as requested by Pathfinder Development.
@@ -13,6 +57,35 @@ Recovered commits are now `28230ed` and `73f6bdf`; `45abcdf` adds receipt discov
 and positive-quantity validation. Development remains deployment owner.
 
 ### Implementation and fresh evidence
+
+- **12:29 PM Eastern fixture update:** line4 / 10286638 / quantity12 now has
+  unique PENDING attachments28794222 (`Mind_Juicer…jpg`) and28794316
+  (`5x8_test.jpg`). Neither appears on line1. The independent 5/7 fixture
+  blocker is resolved; no allocation was submitted. Line2 remains APPROVED,
+  line3 remains waiting at7.01. Revalidate bindings immediately before live QA.
+- Allocation recovery refinements: content-sized short quantity dialog,
+  12px inline range validation, Save quantities label; in-flight dock uses saved
+  submission status instead of stale zero-assigned/ready-to-submit drafts.
+  Confirmed receipts survive order-refresh failure with read-only Retry refresh;
+  View updated proofs appears only after successful load. Pending attachment
+  protection remains until this refresh completes. Paused title no longer
+  incorrectly assumes the proofs changed.
+- Isolated localhost Vite fixture `tests/browser/fixtures/proof-allocation-preview.mts`
+  has no production proxy or Lift calls. Chromium visual checks at1366×768 and
+  1920×1080 cover compact valid/invalid entry, dismissed in-flight status,
+  partial receipt/reload, paused and failed/successful refresh. Essential error
+  computed12px, compact invalid dialog491.6px high at1366; no horizontal overflow.
+  Back retained5/7. Retry refresh changed counters from prepare0/advance1/order2
+  to prepare0/advance1/order3: no approval API call repeated. Updated-order fixture
+  showed0open/2approved and completion empty state. Expired-session fixture
+  displayed reopen-link guidance. These remain mocked lifecycle tests, not
+  live allocation/split confirmation or full accessibility certification.
+- Development release preparation identified shared artifact-key impact on
+  public/operator/sync Lambdas and destructive web --delete deployment. Isolate
+  public artifact, retain previous hashed web assets, repeat advanced-policy/
+  grant inventory before order-only activation, preserve rollback across durable
+  claims. No deployment or policy change performed. Allocation-specific UX
+  exact-revision sign-off is requested separately from still-dark revised art.
 
 - Added order-partition-only, paginated revision receipt discovery at
   `GET /tasks/:taskId/revised-art/submissions`. Recovery filters customer, order,
@@ -40,7 +113,7 @@ and positive-quantity validation. Development remains deployment owner.
   does not implement the order-refresh endpoint; the resulting sync alert is
   not a production failure and updated-order rendering is not certified here.
 
-### Remaining gates
+### Earlier checkpoint and remaining gates
 
 - October 29 11:49 AM Eastern live checkpoint: A0232139 active, customer 1249
   (LTL Demo), 4/4 line reads succeeded, six pending proofs, zero normalization
@@ -53,9 +126,10 @@ and positive-quantity validation. Development remains deployment owner.
   line3 for revision; if line2 is used for both approval and change-request QA,
   an explicit verified Lift reset/new pending proof is needed between scenarios.
   Reread all bindings before any mutation.
-- The deployed Pathfinder order panel currently has no grants for A0232139,
+- At the earlier 11:49 checkpoint, the generic Pathfinder panel had no grants for A0232139,
   offers Create view-only link, and keeps operator execution locked. No grant
-  was created. Operator execution is not a substitute for customer-path E2E.
+  was created at that checkpoint. The later source-neutral customer-path test
+  above resolves this access blocker. Operator execution is not a substitute for customer-path E2E.
   Live public Lambda remains revision `6803b36e-69fa-4f5a-b007-86f858158a2f`,
   timeout15, last modified September9. Its persistent LTL Demo QA packed scope
   enables existing single-proof/read/upload capabilities; customer allocation

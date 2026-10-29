@@ -6,6 +6,34 @@ const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8
 const apiSource = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
 const revisionDialogSource = readFileSync(new URL("../src/revision-upload-dialog.tsx", import.meta.url), "utf8");
 const proofUpdateSource = readFileSync(new URL("../src/proof-update-state.ts", import.meta.url), "utf8");
+const allocationProgressSource = readFileSync(new URL("../src/creative-approval-progress.tsx", import.meta.url), "utf8");
+const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+
+test("confirmed allocation refresh recovery never replays approvals", () => {
+  const refreshBody = allocationProgressSource.split("const refreshConfirmedOrder = async")[1]!.split("useEffect(() =>")[0]!;
+  assert.match(refreshBody, /await complete\.current\(\)/);
+  assert.doesNotMatch(refreshBody, /prepareProofAllocation|advanceProofAllocation/);
+  assert.match(refreshBody, /setRefreshState\("error"\)/);
+  assert.match(allocationProgressSource, /Your approvals are confirmed\. We couldn’t refresh the proof list yet\./);
+  assert.match(allocationProgressSource, /refreshState === "ready" \? "View updated proofs" : "Close"/);
+  assert.match(allocationProgressSource, /onClick=\{\(\) => void refreshConfirmedOrder\(batch\)\}>Retry refresh/);
+  assert.match(appSource, /onComplete=\{async \(\) => \{ applyProofLoad\(await loadProofOrder\(\)\); \}\}/);
+});
+
+test("durable allocation status replaces stale editable draft summaries", () => {
+  assert.match(appSource, /\) : allocationInProgress \? \(/);
+  assert.match(appSource, /Your approval submission is saved\. Use View status for the latest result\./);
+  assert.match(appSource, /allocationInProgress=\{group\.tasks\.some/);
+  assert.match(allocationProgressSource, /refreshedId\.current === next\.batch_id/);
+  assert.match(allocationProgressSource, /"Approvals paused"/);
+  assert.doesNotMatch(allocationProgressSource, /"The proofs have changed"/);
+});
+
+test("quantity entry uses content height and readable associated validation", () => {
+  assert.match(stylesSource, /\.quantity-assignment-dialog \{[^}]*height: fit-content/);
+  assert.match(stylesSource, /\.quantity-assignment-row label small \{[^}]*font-size: 12px/);
+  assert.match(appSource, /onClick=\{done\}>Save quantities/);
+});
 
 test("keeps customer decisions inside the current Proof portal and exposes only supported customer actions", () => {
   assert.match(appSource, /One current, unshared proof can be approved/);
