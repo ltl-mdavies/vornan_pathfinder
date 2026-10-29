@@ -760,7 +760,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const distributionSummary = summary.remaining === null
     ? "Quantity unavailable"
     : summary.remaining === 0
-      ? "Distribution complete"
+      ? summary.complete ? "Distribution complete" : "Check creative quantities"
       : summary.remaining > 0
         ? `${summary.remaining} remaining`
         : `${Math.abs(summary.remaining)} over`;
@@ -1050,7 +1050,9 @@ function ProofFilmstrip({ tasks, selectedTaskId, assignments = {}, stagedTaskIds
         {tasks.map((task, index) => {
           const filename = task.current_version?.filename ?? "Proof pending";
           const staged = stagedTaskIds.includes(task.task_id);
-          const taskStatus = staged ? assignments[task.task_id] ? `Qty ${assignments[task.task_id]} · Ready` : "Ready to submit" : statusLabel(task);
+          const assignedValue = assignments[task.task_id] ?? "";
+          const validAssignment = /^\d+$/.test(assignedValue) && Number.isSafeInteger(Number(assignedValue)) && Number(assignedValue) > 0 && task.quantity != null && Number(assignedValue) <= task.quantity;
+          const taskStatus = staged ? validAssignment ? `Qty ${assignedValue} · Ready` : assignedValue ? "Check quantity" : "Ready to submit" : statusLabel(task);
           return (
             <button
               key={task.task_id}

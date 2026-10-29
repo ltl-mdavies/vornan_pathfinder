@@ -1,6 +1,69 @@
 # Proof v1 customer-readiness candidate — 2026-10-22
 
-## Current follow-up — October 28, 2026
+## Current follow-up — October 29, 2026
+
+**Candidate only; not deployed.** Marcus explicitly authorized approvals, change
+requests and synthetic revised-art uploads on **A0232139**. That permission does
+not activate a customer cohort or authorize actions on another order. No live
+actions, uploads, grants or configuration changes were performed in this pass.
+
+The independent candidate was rebased onto verified GitHub main
+`344c2416cd87342d940b533f1c8eb0e9d6fb65ae`, as requested by Pathfinder Development.
+Recovered commits are now `28230ed` and `73f6bdf`; `45abcdf` adds receipt discovery
+and positive-quantity validation. Development remains deployment owner.
+
+### Implementation and fresh evidence
+
+- Added order-partition-only, paginated revision receipt discovery at
+  `GET /tasks/:taskId/revised-art/submissions`. Recovery filters customer, order,
+  grant, participant and task; it never sends an external action. A lost POST
+  response can therefore be recovered without knowing its receipt ID. The
+  revised-art submission gate remains absent/off and the customer handoff UI
+  remains unfinished pending the agreed confirmation/recovery contract.
+- Matched quantity inputs and summaries to backend positive-whole-number rules.
+  Zero is an inline error; an empty field stays neutral but cannot complete the
+  allocation, even when other entries total the full line quantity. Invalid
+  values no longer say Ready or Distribution complete. No first-time validation
+  surprise after final submission. Completion copy omits the internal Lift name.
+- Fresh checks after rebase: **221 API + 78 UI + 112 domain/adapter + 172
+  deployment/boundary = 583 passing checks**. API and Proof TypeScript, Proof
+  frontend build and dedicated public Lambda build pass. Initial sandbox API
+  run could not open local HTTP listeners; rerun with local socket access passed.
+- Playwright CLI Chromium, intercepted local API: zero rejected, valid 3/7
+  distribution, filename/quantity final review, pending submission, reload
+  recovery with competing actions disabled, and 2/2 confirmed fixture result.
+  Evidence at 1366×768 and 1920×1080 in `output/playwright/quantity-*.png`:
+  `entry`, `review`, `pending`, `completed`; also `zero-1366` and
+  `recovered-1920`. Focus was inside the status dialog and no horizontal page
+  overflow was found at both desktop sizes. These are mocked approvals, not
+  evidence of Lift processing or live line splitting. The fixture deliberately
+  does not implement the order-refresh endpoint; the resulting sync alert is
+  not a production failure and updated-order rendering is not certified here.
+
+### Remaining gates
+
+- Read-only live inspection found A0232139 active, customer 1249 (LTL Demo), all
+  four lines pending with one creative each. Proposed disposable allocation:
+  line 1 approval (10203614/28234851), line 2 change request
+  (10203615/28234854), line 3 revision (10203616/28234858), line 4 multi-creative
+  (10286638/28493003; quantity 12). **A second current pending creative on line 4
+  is needed for the 5/7 live split test.** All bindings must be reread before use.
+- First launch cohort remains unconfirmed; recommend LTL Demo only initially.
+- Pathfinder UX approved the revised-art direction for implementation, NOT
+  merge/deployment. Review record:
+  `docs/design/reviews/2026-10-29-proof-v1/REVIEW.md` in the canonical repository.
+  Desktop allocation evidence is now supplied; paused/partial and revised-art
+  implemented states still require closure and final exact-revision sign-off.
+- No approved revised-art consumption signal exists. HTTP 2xx, generic
+  REVISION/REJECTED, matching filename or an unrelated new attachment do not
+  establish receipt of the exact uploaded asset. Provider-correlated evidence
+  or explicitly attributed operator verification needs an agreed contract.
+  Unknown submissions remain excluded from replay.
+- Live customer-path E2E, coordinated integration/deployment verification,
+  scoped change-set/artifact/rollback checks and cohort activation remain open.
+  A0233367 stays view-only. Existing Proof bearer auth remains unchanged.
+
+## Historical follow-up — October 28, 2026
 
 **Isolated candidate only. No push, deployment, permission activation, real
 uploads or Lift actions were performed. Not ready for general customer launch.**

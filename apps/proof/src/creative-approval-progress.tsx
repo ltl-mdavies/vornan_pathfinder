@@ -92,7 +92,7 @@ export function AllocationProgress({ request, onClose, onComplete, onPendingChan
     <dialog ref={dialog} className="proof-dialog quantity-batch-dialog creative-approval-progress-dialog" aria-labelledby="creative-approval-progress-title" onCancel={(event) => { event.preventDefault(); dismiss(); }}>
       <div className="dialog-heading quantity-batch-heading">
         <div><span className="eyebrow">Line {batch?.source_line_number ?? "—"} · Creative approvals</span><h2 id="creative-approval-progress-title">{done ? "Proofs approved" : batch?.state === "paused" ? "The proofs have changed" : "Confirming your approvals"}</h2>
-          <p>{done ? "All creative quantities have been confirmed in Lift." : batch?.state === "paused" ? "We stopped before sending another approval. Review the latest proofs before continuing." : "Each creative is submitted once. Keep this review page open while we confirm the quantities. If you leave, reopen your review link to continue."}</p></div>
+          <p>{done ? "All creative quantities have been confirmed." : batch?.state === "paused" ? "We stopped before sending another approval. Review the latest proofs before continuing." : "Each creative is submitted once. Keep this review page open while we confirm the quantities. If you leave, reopen your review link to continue."}</p></div>
         <button ref={closeButton} className="icon-button subtle" aria-label="Close approval status" onClick={dismiss}><X aria-hidden="true" /></button>
       </div>
       <div className="quantity-confirm-list" role="list" aria-label="Creative approval status">
