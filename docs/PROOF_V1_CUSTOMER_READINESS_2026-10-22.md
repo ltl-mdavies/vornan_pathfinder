@@ -1,6 +1,59 @@
 # Proof v1 customer-readiness candidate — 2026-10-22
 
-## Current follow-up — October 29, 2026
+## Latest checkpoint — October 29, 2026, 1:42 PM Eastern
+
+**Restricted multi-creative live QA passed. Not a general customer launch.**
+This checkpoint supersedes the earlier candidate-only deployment statements
+below; those sections are retained as historical evidence.
+
+- Development deployed PR374 / main `7b6259c63c6eb4a73744c55d3d366eb88b173197`
+  and recorded deployment verification in PR375. Public Proof backend and matching
+  frontend only; 13 CDN files hash-verified. Admin, Status, shared operator/sync
+  functions and other customer defaults were unchanged. Existing PDF/worker
+  hashes were preserved. Public timeout is60s; exact ProofCore-table
+  `dynamodb:ConditionCheckItem` permission supports durable recovery.
+- Allocation activation is restricted to **1249:A0232139**. The human-approved
+  order-only Advanced exception and one fresh QA session were created through
+  supported UI. Default remains disabled/Simple; existing simple exceptions
+  and Status policy are unchanged. No email or general launch activation.
+- Authenticated baseline verified custom high-resolution PDF canvas (no browser
+  PDF iframe), one-row controls and tooltips, filename information, full centered
+  thumbnail, correct queues, and background refresh preserving an open dialog.
+- **Live 5/7 PASS:** validation blocked0/12, accepted5/7, and Back retained values.
+  Submitted once with explicit disposable/do-not-produce QA note. UI progressed
+  through saved0/2 and1/2 receipts to2/2 confirmed. No resend or manual replay.
+- Authoritative Lift read at17:34:11.790Z: attachment28794222 moved to new line5 /
+  order-line10382947, quantity5, APPROVED, step10. Attachment28794316 remained
+  on line4 / order-line10286638, quantity7, APPROVED, step10. All five line reads
+  succeeded. Other lines were unchanged. Reload retained3/6 approved and Approved
+  queue lines2,4,5, without repeat approval controls on the completed line.
+- Development independently verified durable records at17:36:11.972Z: exactly
+  one completed batch (version5), two confirmed entries, two retained action
+  claims, two authoritative approval markers, five allocation lifecycle audit
+  events, and exactly one submission-started record per creative.
+- File history correction `2277bb1`: only display Approved in Lift timestamp
+  when that version's status is APPROVED; pending/rejected/null status cannot
+  imply approval from a non-null provider date. 87 UI tests and production build
+  pass. Pathfinder UX approved exact source and pending/approved screenshots
+  October29. This small correction is a separate deployment follow-up.
+- Marcus has supplied a new line3 proof for revised-art QA. Refreshed customer
+  UI shows one pending `A0232139_3_Skull_Pistons_v2.jpg`; authoritative binding
+  and uniqueness check is being recorded separately. No new line3 action sent.
+
+Remaining gates: revised-art Submit/recovery UI and supervised live handoff
+test (submission still OFF), actual native200% browser-zoom/accessibility check
+(Mac lock prevented it; not certified), and explicit customer launch cohort.
+Do not clear durable claims or roll back to receipt-incompatible code.
+
+Evidence folder:
+`/Users/marcusdavies/.codex/visualizations/2026/08/10/019fed7e-564b-7141-992d-bf856a4ca509/allocation-qa-oct29/`:
+`proof-live-completed-5-7-20261029.jpg`,
+`proof-live-final-5-7-review-20261029.jpg`,
+`proof-live-zero-quantity-20261029.jpg`,
+`history-pending-date-hidden.jpg`, `history-approved-date-retained.jpg`.
+Independent deployment audit: `/private/tmp/proof-allocation-release-evidence.ahidey/live-qa-closure.md`.
+
+## Historical follow-up — October 29, 2026, before restricted deployment
 
 **Candidate only; not deployed.** Marcus explicitly authorized approvals, change
 requests and synthetic revised-art uploads on **A0232139**. That permission does

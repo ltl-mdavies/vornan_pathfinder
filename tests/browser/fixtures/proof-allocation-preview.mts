@@ -30,7 +30,7 @@ const server = await createServer({ configFile: false, root: new URL('../../../a
       }
       if (url.pathname === '/' && url.searchParams.has('qa') && url.searchParams.get('qa') !== scenario) {
         scenario = url.searchParams.get('qa')!; refreshFailed = false; counts = { prepare: 0, advance: 0, order: 0 };
-        batch = scenario === 'entry' ? null : savedBatch();
+        batch = scenario === 'entry' || scenario.startsWith('history-') ? null : savedBatch();
         if (scenario === 'partial') batch.entries[0].state = 'confirmed';
         if (scenario === 'paused') { batch.state = 'paused'; batch.entries[0].state = 'confirmed'; }
       }
@@ -43,8 +43,19 @@ const server = await createServer({ configFile: false, root: new URL('../../../a
         counts.order++;
         if (scenario === 'completed-error' && batch?.state === 'completed' && !refreshFailed) { refreshFailed = true; return send({ error: 'Isolated refresh failure' }, 503); }
         const order = structuredClone(base);
+        if (scenario.startsWith('history-')) {
+          const version = order.tasks[0].current_version!;
+          version.approval_status = scenario === 'history-approved' ? 'APPROVED' : 'PENDING';
+          version.proof_approved_ts = '2026-10-29T16:26:00.000Z';
+          order.tasks[0].versions = [version];
+          order.tasks[0].state = scenario === 'history-approved' ? 'approved' : 'pending';
+        }
         if (batch?.state === 'completed') { order.tasks.forEach((t, i) => { t.state = 'approved'; t.line_number = String(i + 4); t.quantity = i ? 7 : 5; t.sibling_count = 1; t.current_version!.approval_status = 'APPROVED'; }); order.counts = { pending: 0, regenerating: 0, waiting: 0, reviewed: 2, total: 2 }; }
         return send({ order, participant: { participant_id: 'local-reviewer', display_name: 'Local QA', email: 'qa@example.invalid' }, activity: { identified_reviewers: 1, last_activity_at: null, reviewer_names_visible: false }, session_expires_at: new Date(Date.now() + 3600000).toISOString(), refresh_queued: false });
+      }
+      if (url.pathname.endsWith('/history') && scenario.startsWith('history-')) {
+        const version = { ...base.tasks[0].current_version!, approval_status: scenario === 'history-approved' ? 'APPROVED' : 'PENDING', proof_approved_ts: '2026-10-29T16:26:00.000Z' };
+        return send({ task_id: base.tasks[0].task_id, versions: [version] });
       }
       if (url.pathname.endsWith('/approval-batches') && req.method === 'GET') return send({ batches: batch ? [batch] : [] });
       if (url.pathname.endsWith('/approval-batches') && req.method === 'POST') {
