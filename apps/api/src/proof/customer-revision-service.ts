@@ -55,6 +55,7 @@ export function createCustomerRevisionService(deps: {
 } = {}) {
   const now = deps.now ?? (() => new Date()), read = deps.read ?? readRevisionSubmission;
   function authorize(session: ProofAccessSession, submitting = false) {
+    if (session.delegated) fail("not_allowed", "Revised artwork submission is not included in shared access.");
     const flags = (deps.runtime ?? getProofRuntimeConfig)().feature_flags;
     if (!flags.public_read || (submitting && (!(deps.enabled ?? customerRevisionSubmissionEnabled)() || !flags.revision_upload || !flags.approve))) fail("disabled", "Revised artwork submission is not enabled.");
     if (session.scope !== "review" || session.capability?.access_mode !== "review" || !/^\d{1,20}$/.test(session.capability?.proof_customer_id ?? "") || !session.participant_id) fail("not_allowed", "Identify the reviewer with review access first.");

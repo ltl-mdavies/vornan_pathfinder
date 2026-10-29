@@ -257,7 +257,7 @@ export async function persistProofOrder(order: ProofOrder) {
   });
 }
 
-function grantIndexes(grant: ProofAccessGrant) {
+export function grantIndexes(grant: ProofAccessGrant) {
   const indexes: Record<string, AttributeValue> = {
     gsi1pk: stringAttribute(`TOKEN#${grant.token_hash}`),
     gsi1sk: stringAttribute(`GRANT#${grant.grant_id}`),
@@ -291,16 +291,20 @@ export async function listProofGrants(orderNumber: string) {
     throw new Error("Vornan Proof persistence is disabled until the dedicated Proof core table is configured.");
   }
   if (config.storage_driver === "dynamodb") {
-    const response = await client().send(new QueryCommand({
-      TableName: requiredCoreTable(),
-      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
-      ExpressionAttributeValues: {
-        ":pk": stringAttribute(`ORDER#${orderNumber}`),
-        ":prefix": stringAttribute("GRANT#")
-      },
-      ConsistentRead: true
-    }));
-    return (response.Items ?? []).map((item) => parseData<ProofAccessGrant>(item)).filter((item): item is ProofAccessGrant => Boolean(item));
+    const grants: ProofAccessGrant[] = [];
+    let ExclusiveStartKey: Record<string, AttributeValue> | undefined;
+    do {
+      const response = await client().send(new QueryCommand({
+        TableName: requiredCoreTable(),
+        KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+        ExpressionAttributeValues: {
+          ":pk": stringAttribute(`ORDER#${orderNumber}`), ":prefix": stringAttribute("GRANT#")
+        }, ConsistentRead: true, ExclusiveStartKey
+      }));
+      grants.push(...(response.Items ?? []).map((item) => parseData<ProofAccessGrant>(item)).filter((item): item is ProofAccessGrant => Boolean(item)));
+      ExclusiveStartKey = response.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return grants;
   }
   const store = await readLocalStore();
   return Object.values(store.grants).filter((grant) => grant.order_number === orderNumber);
@@ -350,7 +354,8 @@ export async function getProofGrantById(grantId: string) {
       ExpressionAttributeValues: { ":pk": stringAttribute(`GRANT#${grantId}`) },
       Limit: 1
     }));
-    return parseData<ProofAccessGrant>(response.Items?.[0]);
+    const located = parseData<ProofAccessGrant>(response.Items?.[0]);
+    return located ? getProofGrantForOrder(located.order_number, grantId) : null;
   }
   const store = await readLocalStore();
   return store.grants[grantId] ?? null;
@@ -369,14 +374,33 @@ export async function getProofGrantByTokenHash(tokenHash: string) {
       ExpressionAttributeValues: { ":pk": stringAttribute(`TOKEN#${tokenHash}`) },
       Limit: 1
     }));
-    return parseData<ProofAccessGrant>(response.Items?.[0]);
+    const located = parseData<ProofAccessGrant>(response.Items?.[0]);
+    const current = located ? await getProofGrantForOrder(located.order_number, located.grant_id) : null;
+    return current?.token_hash === tokenHash ? current : null;
   }
   const store = await readLocalStore();
   return Object.values(store.grants).find((grant) => grant.token_hash === tokenHash) ?? null;
 }
 
+/** Authoritative access read: never admit a session from an eventually consistent index. */
+export async function getProofGrantForOrder(orderNumber: string, grantId: string) {
+  const config = getProofRuntimeConfig();
+  if (config.storage_driver === "disabled") throw new Error("Proof storage is disabled.");
+  if (config.storage_driver === "dynamodb") {
+    const response = await client().send(new GetItemCommand({
+      TableName: requiredCoreTable(),
+      Key: { pk: stringAttribute(`ORDER#${orderNumber}`), sk: stringAttribute(`GRANT#${grantId}`) },
+      ConsistentRead: true
+    }));
+    return parseData<ProofAccessGrant>(response.Item);
+  }
+  const grant = (await readLocalStore()).grants[grantId];
+  return grant?.order_number === orderNumber ? grant : null;
+}
+
+
 export async function claimProofGrant(grant: ProofAccessGrant, exchangedAt: string) {
-  if (grant.exchanged_at) {
+  if (grant.exchanged_at || grant.kind === "delegated" || grant.status !== "active" || grant.revoked_at) {
     return null;
   }
   const claimed = { ...grant, exchanged_at: exchangedAt, last_used_at: exchangedAt };
@@ -386,7 +410,9 @@ export async function claimProofGrant(grant: ProofAccessGrant, exchangedAt: stri
       await client().send(new PutItemCommand({
         TableName: requiredCoreTable(),
         Item: dataItem(`ORDER#${grant.order_number}`, `GRANT#${grant.grant_id}`, claimed, grantIndexes(claimed)),
-        ConditionExpression: "attribute_not_exists(exchanged_at)"
+        ConditionExpression: "#data = :expected",
+        ExpressionAttributeNames: { "#data": "data" },
+        ExpressionAttributeValues: { ":expected": stringAttribute(JSON.stringify(grant)) }
       }));
       return claimed;
     } catch (error) {
@@ -401,7 +427,7 @@ export async function claimProofGrant(grant: ProofAccessGrant, exchangedAt: stri
   }
   return mutateLocalStore((store) => {
     const current = store.grants[grant.grant_id];
-    if (!current || current.exchanged_at) {
+    if (!current || JSON.stringify(current) !== JSON.stringify(grant)) {
       return null;
     }
     store.grants[grant.grant_id] = claimed;
@@ -434,7 +460,8 @@ export async function getProofSessionByHash(sessionHash: string) {
   if (config.storage_driver === "dynamodb") {
     const response = await client().send(new GetItemCommand({
       TableName: requiredCoreTable(),
-      Key: { pk: stringAttribute(`SESSION#${sessionHash}`), sk: stringAttribute("PROFILE") }
+      Key: { pk: stringAttribute(`SESSION#${sessionHash}`), sk: stringAttribute("PROFILE") },
+      ConsistentRead: true
     }));
     return parseData<ProofAccessSession>(response.Item as Record<string, AttributeValue> | undefined);
   }
