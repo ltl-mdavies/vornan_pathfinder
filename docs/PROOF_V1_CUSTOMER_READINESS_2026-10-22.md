@@ -42,12 +42,26 @@ and positive-quantity validation. Development remains deployment owner.
 
 ### Remaining gates
 
-- Read-only live inspection found A0232139 active, customer 1249 (LTL Demo), all
-  four lines pending with one creative each. Proposed disposable allocation:
-  line 1 approval (10203614/28234851), line 2 change request
-  (10203615/28234854), line 3 revision (10203616/28234858), line 4 multi-creative
-  (10286638/28493003; quantity 12). **A second current pending creative on line 4
-  is needed for the 5/7 live split test.** All bindings must be reread before use.
+- October 29 11:49 AM Eastern live checkpoint: A0232139 active, customer 1249
+  (LTL Demo), 4/4 line reads succeeded, six pending proofs, zero normalization
+  warnings. Authenticated Pathfinder Sync Proofs completed; no Lift action sent.
+  Lines 1 (10203614, qty10) and 4 (10286638, qty12) now BOTH contain attachments
+  28234851 and 28493003. These are shared across lines, not independent split
+  fixtures. Keep shared-art protection intact. Line4 needs two attachments
+  unique to that line for the 5/7 split. Line2 (10203615/28234854) and line3
+  (10203616/28234858) remain independent single-creative pending proofs. Reserve
+  line3 for revision; if line2 is used for both approval and change-request QA,
+  an explicit verified Lift reset/new pending proof is needed between scenarios.
+  Reread all bindings before any mutation.
+- The deployed Pathfinder order panel currently has no grants for A0232139,
+  offers Create view-only link, and keeps operator execution locked. No grant
+  was created. Operator execution is not a substitute for customer-path E2E.
+  Live public Lambda remains revision `6803b36e-69fa-4f5a-b007-86f858158a2f`,
+  timeout15, last modified September9. Its persistent LTL Demo QA packed scope
+  enables existing single-proof/read/upload capabilities; customer allocation
+  and revision-submission flags are absent. The v1 candidate is not deployed.
+  Requested Development identify the order-specific customer QA path without
+  treating general launch-cohort approval as a prerequisite for disposable QA.
 - First launch cohort remains unconfirmed; recommend LTL Demo only initially.
 - Pathfinder UX approved the revised-art direction for implementation, NOT
   merge/deployment. Review record:
