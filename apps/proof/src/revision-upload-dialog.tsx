@@ -18,6 +18,7 @@ import { isLiftProofUpdatedError } from "./proof-update-state";
 import type { ProofTask } from "./types";
 
 type LocalStage = "select" | "hashing" | "uploading" | "finalizing" | "processing" | "error";
+type RevisionDraft = { file: File | null; stage: LocalStage; asset: ProofRevisionAsset | null; message: string | null; pollCount: number; note: string };
 const ASSET_ID = /^passet_[a-f0-9]{64}$/;
 
 interface RevisionUploadDialogProps {
@@ -85,6 +86,11 @@ export function RevisionUploadDialog({
   const submitStarted = useRef(false);
   const returnFocus = useRef<HTMLElement | null>(null);
   const draftBinding = useRef<string | null>(null);
+  // File handles stay in memory, never serialized into browser storage. Bind
+  // each draft to its order, reviewer, task and version, not the selected line.
+  const drafts = useRef(new Map<string, RevisionDraft>());
+  const latestDraft = useRef<RevisionDraft>({ file, stage, asset, message, pollCount, note });
+  latestDraft.current = { file, stage, asset, message, pollCount, note };
   const busy = stage === "hashing" || stage === "uploading" || stage === "finalizing";
   const blockedMessage = !enabled
     ? "Revised artwork upload is not available in this review window."
@@ -115,15 +121,17 @@ export function RevisionUploadDialog({
     if (!task) return; // Closing preserves an unsent draft in this review window.
     const binding = recoveryKey ?? `${task.task_id}:${task.current_version?.version_id}`;
     if (draftBinding.current === binding) return;
+    if (draftBinding.current) drafts.current.set(draftBinding.current, latestDraft.current);
     draftBinding.current = binding;
-    setFile(null);
-    setStage("select");
-    setAsset(null);
-    setMessage(null);
-    setPollCount(0);
+    const saved = drafts.current.get(binding);
+    setFile(saved?.file ?? null);
+    setStage(saved?.stage ?? "select");
+    setAsset(saved?.asset ?? null);
+    setMessage(saved?.message ?? null);
+    setPollCount(saved?.pollCount ?? 0);
     setDragActive(false);
-    setNote("");
-    try { if (recoveryKey) setNote(window.sessionStorage.getItem(`${recoveryKey}:note`) ?? ""); } catch { /* File picker remains available. */ }
+    setNote(saved?.note ?? "");
+    try { if (!saved && recoveryKey) setNote(window.sessionStorage.getItem(`${recoveryKey}:note`) ?? ""); } catch { /* File picker remains available. */ }
     setSubmitting(false);
     submitStarted.current = false;
     dragDepth.current = 0;

@@ -8,6 +8,14 @@ test("a hanging status GET settles even when its transport ignores abort", async
   await assert.rejects(boundedRevisionRequest((s) => { calls++; signal = s; return new Promise(() => {}); }, 10), /could not be confirmed in time/);
   assert.equal(calls, 1); assert.equal(signal?.aborted, true);
 });
+test("unsent drafts remain in memory per proof binding across task switches", () => {
+  const upload = readFileSync(new URL("../src/revision-upload-dialog.tsx", import.meta.url), "utf8");
+  assert.match(upload, /drafts\.current\.set\(draftBinding\.current, latestDraft\.current\)/);
+  assert.match(upload, /const saved = drafts\.current\.get\(binding\)/);
+  assert.match(upload, /setFile\(saved\?\.file \?\? null\)/);
+  assert.match(upload, /setNote\(saved\?\.note \?\? ""\)/);
+  assert.doesNotMatch(upload, /sessionStorage\.setItem\([^\n]*JSON\.stringify\([^\n]*file/);
+});
 test("successful or failed I/O is never retried by the timeout guard", async () => {
   let calls = 0;
   assert.equal(await boundedRevisionRequest(async () => { calls++; return "saved"; }, 100), "saved");

@@ -24,6 +24,7 @@ const server = await createServer({ configFile: false, root: new URL('../../../a
     if (!url.pathname.startsWith('/api/')) return next();
     if (url.pathname === '/api/public/proof/order') {
       const order = structuredClone(base);
+      if (scenario === 'draft') { order.tasks.push({ ...structuredClone(task), task_id: 'ptask_second', attachment_id: '789', line_number: '4', current_version: { ...structuredClone(task.current_version), filename: 'Second-proof.jpg', version_id: 'pversion_second' } } as any); order.counts.pending = 2; order.counts.total = 2; }
       if (scenario === 'replacement' && receipt) { order.tasks[0].attachment_id = '456'; order.tasks[0].current_version!.version_id = 'pversion_replacement'; order.tasks[0].current_version!.filename = 'New-proof.jpg'; }
       if (scenario === 'removed' && receipt) { order.tasks = []; order.counts = { pending: 0, regenerating: 0, waiting: 1, reviewed: 0, total: 1 }; }
       return send({ order, participant: { participant_id: 'revision-reviewer-' + scenario, display_name: 'Local QA', email: 'qa@example.invalid' }, activity: { identified_reviewers: 1 }, session_expires_at: new Date(Date.now() + 3600000).toISOString(), refresh_queued: false });
@@ -37,7 +38,7 @@ const server = await createServer({ configFile: false, root: new URL('../../../a
       if (scenario === 'lost') { receipt = null; return send({ error: 'Simulated lost response' }, 504); }
       return send({ submission: receipt });
     }
-    if (url.pathname.endsWith('/revised-art/submissions') && req.method === 'GET') { reads++; if (scenario === 'hanging') return; if (scenario === 'read-failure') return send({ error: 'Temporarily unavailable' }, 503); return scenario === 'expired' ? send({ error: 'Session expired' }, 401) : send({ submissions: receipt ? [receipt] : [] }); }
+    if (url.pathname.endsWith('/revised-art/submissions') && req.method === 'GET') { reads++; if (scenario === 'hanging') return; if (scenario === 'read-failure') return send({ error: 'Temporarily unavailable' }, 503); if (scenario === 'multiple') return send({ submissions: Array.from({length: 4}, (_, i) => ({ submission_id: 'prevision_send_' + i, task_id: 'other_task_' + i, attachment_id: String(800+i), version_id: 'version_'+i, asset_id: 'asset_'+i, line_number: String(i+1), filename: 'QA_ONLY_' + 'Long_reference_name_'.repeat(8) + i + '.pdf', proof_filename: 'Original-proof-'+i+'.jpg', state: i%2 ? 'checking' : 'accepted', automatic_retry: false, lift_outcome_confirmed: false })) }); return scenario === 'expired' ? send({ error: 'Session expired' }, 401) : send({ submissions: receipt ? [receipt] : [] }); }
     if (url.pathname.endsWith('/refresh')) return send({ queued: false, order: base });
     return send({ error: 'Outside local fixture' }, 404);
   });
