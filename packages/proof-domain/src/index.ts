@@ -159,6 +159,13 @@ export interface ProofGrantCapabilityBinding {
 }
 
 export interface ProofAccessGrant {
+  /** Absent on legacy, single-use operator-issued access links. */
+  kind?: "delegated";
+  parent_grant_id?: string;
+  created_by_session_id?: string;
+  share_request_hash?: string;
+  share_created_count?: number;
+  share_last_created_at?: string;
   grant_id: string;
   order_number: string;
   scope: ProofGrantScope;
@@ -175,6 +182,7 @@ export interface ProofAccessGrant {
 }
 
 export interface ProofAccessSession {
+  delegated?: boolean;
   session_id: string;
   session_hash: string;
   grant_id: string;

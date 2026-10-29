@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { toPublicProofOrder, toPublicProofTaskHistory } from "@pathfinder/proof-domain";
 import {
   endProofSession,
+  activationDeadline,
   exchangeProofToken,
   extendProofSession,
   getProofSessionForLogout,
@@ -35,6 +36,8 @@ import type { ProofCustomerCapabilityAuthorityReader } from "./customer-capabili
 import { ProofDetailedReportError, proofDetailedReportService } from "./detailed-report-service.js";
 import { customerAllocationService, customerAllocationsEnabled, customerAllocationScopeAllowed } from "./customer-quantity-service.js";
 import { customerRevisionService, customerRevisionSubmissionEnabled, customerRevisionScopeAllowed } from "./customer-revision-service.js";
+import { proofShareContext, proofShareManagementAllowed } from "./share-policy.js";
+import { createSharedProofLink, listSharedProofLinks, revokeSharedProofLink, ProofShareError } from "./share-service.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -76,6 +79,10 @@ function requireCsrf(req: Request, session: Parameters<typeof validateProofCsrf>
 }
 
 function handlePublicError(error: unknown, res: Parameters<Parameters<Router["get"]>[1]>[1], fallback: string) {
+  if (error instanceof ProofShareError) {
+    res.status(error.status).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+    return;
+  }
   if (error instanceof ProofAccessDeniedError) {
     deny(res);
     return;
@@ -173,6 +180,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
 
   function revisionActor(session: Awaited<ReturnType<typeof validateProofSession>>["session"]) {
     if (
+      session.delegated ||
       !getProofRuntimeConfig().feature_flags.revision_upload ||
       !getProofRuntimeConfig().feature_flags.public_read ||
       !proofAssetUploadAllowed(getProofAssetUploadRuntimeConfig(), session.capability?.proof_customer_id ?? "", session.order_number)
@@ -259,6 +267,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       const automaticRefresh = proofAutomaticRefreshState(order);
       const proofRuntime = getProofRuntimeConfig();
       const revisionUploadEnabled =
+        !session.delegated &&
         session.scope === "review" &&
         grant.capability?.access_mode === "review" &&
         proofRuntime.feature_flags.public_read &&
@@ -287,8 +296,12 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
           ...publicOrder,
           access: {
             ...publicOrder.access,
+            sharing_enabled: proofShareManagementAllowed(grant),
+            sharing_context: proofShareManagementAllowed(grant) ? proofShareContext(session) : null,
+            sharing_review_enabled: proofShareManagementAllowed(grant) && proofRuntime.feature_flags.approve,
+            sharing_expires_at: proofShareManagementAllowed(grant) ? new Date(Math.min(Date.parse(grant.expires_at), activationDeadline(new Date(), true)?.getTime() ?? Infinity)).toISOString() : null,
             revision_upload_enabled: revisionUploadEnabled,
-            revision_recovery_enabled: session.scope === "review" && grant.capability?.access_mode === "review" && proofRuntime.feature_flags.public_read && customerRevisionScopeAllowed(session),
+            revision_recovery_enabled: !session.delegated && session.scope === "review" && grant.capability?.access_mode === "review" && proofRuntime.feature_flags.public_read && customerRevisionScopeAllowed(session),
             revision_submission_enabled: revisionUploadEnabled && publicOrder.access.decisions_enabled && customerRevisionSubmissionEnabled() && customerRevisionScopeAllowed(session)
           },
           health: automaticRefresh.stale && publicOrder.health === "active" ? "stale" : publicOrder.health,
@@ -302,6 +315,35 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     } catch (error) {
       handlePublicError(error, res, "Proof details could not be loaded.");
     }
+  });
+
+  router.get("/shares", async (req, res) => {
+    try {
+      const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
+      res.json({ links: await listSharedProofLinks({ session, expected_order_number: req.query.order, expected_share_context: req.query.context, readWorkspace: readCustomerCapabilityWorkspace }) });
+    } catch (error) { handlePublicError(error, res, "Shared links could not be loaded. Try again."); }
+  });
+
+  router.post("/shares", async (req, res) => {
+    try {
+      const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      const result = await createSharedProofLink({
+        session, readWorkspace: readCustomerCapabilityWorkspace, csrf: req.get("x-vornan-proof-csrf") ?? "",
+        expected_order_number: req.body?.expected_order_number, expected_share_context: req.body?.expected_share_context,
+        idempotency_key: req.body?.idempotency_key, scope: req.body?.scope, days: req.body?.days,
+        description: req.body?.description ?? ""
+      });
+      res.status(201).json(result);
+    } catch (error) { handlePublicError(error, res, "The link could not be confirmed. Try again to recover the same link."); }
+  });
+
+  router.delete("/shares/:id", async (req, res) => {
+    try {
+      const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      res.json({ link: await revokeSharedProofLink({ session, id: req.params.id, expected_order_number: req.query.order, expected_share_context: req.query.context, readWorkspace: readCustomerCapabilityWorkspace }) });
+    } catch (error) { handlePublicError(error, res, "Revocation could not be confirmed. Refresh the list and try again."); }
   });
 
   router.get("/tasks/:taskId/history", async (req, res) => {

@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { describe } from "node:test";
 import type { ProofAccessSession, ProofOrder } from "@pathfinder/proof-domain";
 import type { ProofActionTargetConfig } from "../src/proof/action-target-store.ts";
+import { ProofDecisionIntegrityError } from "../src/proof/decision-contract.ts";
 import {
   createProofCustomerApprovalService,
   ProofCustomerApprovalError
 } from "../src/proof/customer-approval-service.ts";
 
+for (const delegated of [false, true]) describe(delegated ? "delegated reviewer actions" : "original reviewer actions", () => {
 const now = new Date("2026-08-08T16:00:00.000Z");
 const session: ProofAccessSession = {
+  delegated,
   session_id: "psession_customer_approval",
   session_hash: "a".repeat(64),
   grant_id: "pgrant_customer_approval",
@@ -265,6 +268,48 @@ test("rejects multiple or shared proofs before credentials or transport", async 
   assert.equal(sends, 0);
 });
 
+test("View and unidentified recipients cannot approve or request changes", async () => {
+  for (const identity of [{ ...session, scope: "view" as const }, { ...session, participant_id: null }]) {
+    const calls: string[] = [];
+    const service = createProofCustomerApprovalService({
+      runtimeConfig: () => runtime(true),
+      syncOrder: async () => { calls.push("read"); throw new Error("must not read"); },
+      readCredentials: async () => { calls.push("credentials"); throw new Error("must not read credentials"); },
+      send: async () => { calls.push("send"); throw new Error("must not send"); }
+    });
+    for (const action of [service.approve, service.requestChanges]) {
+      await assert.rejects(action({ session: identity, request, correlation_id: "denied-recipient" }),
+        (error) => error instanceof ProofCustomerApprovalError && error.code === "not_allowed");
+    }
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("review recipients retain feedback, current-version and shared-art safeguards", async () => {
+  for (const reason of ["feedback", "version", "shared"] as const) {
+    for (const actionName of ["approve", "requestChanges"] as const) {
+      const order = proofOrder();
+      if (reason === "version") order.tasks[0]!.version++;
+      if (reason === "shared") order.tasks.push({ ...order.tasks[0]!, task_id: "shared-task", order_line_id: "another-line" });
+      const calls: string[] = [];
+      const service = createProofCustomerApprovalService({
+        runtimeConfig: () => runtime(true), readTargetConfig: async () => target[0]!,
+        syncOrder: async () => ({ order }) as never,
+        getParticipant: async () => ({ participant_id: session.participant_id!, grant_id: session.grant_id, order_number: session.order_number,
+          display_name: "Recipient", email: "recipient@example.invalid", first_seen_at: now.toISOString(), last_seen_at: now.toISOString() }),
+        getFeedbackAcknowledgement: async () => null,
+        readCredentials: async () => { calls.push("credentials"); throw new Error("must not read credentials"); },
+        reserve: async () => { calls.push("reserve"); throw new Error("must not reserve"); },
+        send: async () => { calls.push("send"); throw new Error("must not send"); }
+      });
+      await assert.rejects(service[actionName]({ session, request, correlation_id: `guard-${reason}` }),
+        (error) => reason === "feedback" ? error instanceof ProofDecisionIntegrityError :
+          error instanceof ProofCustomerApprovalError && error.code === (reason === "version" ? "stale" : "not_allowed"));
+      assert.deepEqual(calls, []);
+    }
+  }
+});
+
 test("never replays transport after the durable no-retry boundary", async () => {
   let credentialReads = 0;
   let sends = 0;
@@ -300,4 +345,5 @@ test("never replays transport after the durable no-retry boundary", async () => 
   });
   assert.equal(credentialReads, 0);
   assert.equal(sends, 0);
+});
 });

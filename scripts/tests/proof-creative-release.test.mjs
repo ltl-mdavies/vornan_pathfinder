@@ -28,7 +28,8 @@ test("public release preserves worker artifacts and previous frontend assets", (
   assert.match(publicFunction, /S3Key: !If \[HasPublicFunctionCodeOverride, !Ref PublicFunctionCodeS3Key, !Ref PublicLambdaCodeS3Key\]/);
   for (const name of ["ProofSyncFunction", "ProofOperatorFunction"]) {
     const section = template.split(`  ${name}:`)[1].split(/\n  [A-Za-z]+:/)[0];
-    assert.match(section, /S3Key: !Ref PublicLambdaCodeS3Key/);
+    if (name === "ProofSyncFunction") assert.match(section, /S3Key: !Ref PublicLambdaCodeS3Key/);
+    else assert.match(section, /S3Key: !If \[HasOperatorFunctionCodeOverride, !Ref OperatorFunctionCodeS3Key, !Ref PublicLambdaCodeS3Key\]/);
     assert.doesNotMatch(section, /PublicFunctionCodeS3Key/);
   }
   for (const path of ["scripts/deploy-proof-web.sh", ".github/workflows/deploy-proof.yml"]) assert.doesNotMatch(source(path), /--delete/);

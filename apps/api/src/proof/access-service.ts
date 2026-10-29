@@ -12,6 +12,7 @@ import { recordProofAuditEvent, type ProofAuditContext } from "./audit-service.j
 import {
   claimProofGrant,
   getProofGrantById,
+  getProofGrantForOrder,
   getProofGrantByTokenHash,
   getProofOrder,
   getProofSessionByHash,
@@ -25,6 +26,8 @@ import {
   revalidateProofCustomerCapability,
   type ProofCustomerCapabilityAuthorityReader
 } from "./customer-capability-authority.js";
+import { proofSharingScopeAllowed } from "./share-policy.js";
+import { replaceProofGrant } from "./grant-store.js";
 
 export class ProofAccessDeniedError extends Error {
   constructor() {
@@ -102,7 +105,7 @@ function addMilliseconds(now: Date, milliseconds: number) {
   return new Date(now.getTime() + milliseconds);
 }
 
-function activationDeadline(now: Date, publicRequest = false) {
+export function activationDeadline(now: Date, publicRequest = false) {
   const runtime = getProofRuntimeConfig();
   if (runtime.ltl_demo_qa.active && runtime.ltl_demo_qa.persistent) {
     return null;
@@ -177,13 +180,12 @@ export async function validateProofGrantAccessUrl(grantId: string, accessUrl: st
 }
 
 export function publicProofGrant(grant: ProofAccessGrant, participantCount = 0): PublicProofGrant {
-  const {
-    token_hash: _tokenHash,
-    expires_at_epoch: _expiresEpoch,
-    capability: _capability,
-    ...safe
-  } = grant;
-  return { ...safe, participant_count: participantCount };
+  return {
+    grant_id: grant.grant_id, order_number: grant.order_number, scope: grant.scope,
+    label: grant.label, status: grant.status, created_at: grant.created_at,
+    expires_at: grant.expires_at, exchanged_at: grant.exchanged_at,
+    revoked_at: grant.revoked_at, last_used_at: grant.last_used_at, participant_count: participantCount
+  };
 }
 
 export async function createProofGrant(input: {
@@ -327,7 +329,9 @@ async function persistProofGrantRevocation(
     status: "revoked" as const,
     revoked_at: grant.revoked_at ?? now.toISOString()
   };
-  await persistProofGrant(revoked);
+  if (!await replaceProofGrant(grant, revoked)) {
+    throw new ProofAccessValidationError("Access changed. Refresh and try again.");
+  }
   await recordProofAuditEvent({
     action: "proof.grant_revoked",
     order_number: revoked.order_number,
@@ -375,6 +379,9 @@ export async function updateProofGrant(
   if (input.action === "revoke") {
     return { grant: await revokeProofGrant(grantId, now, auditContext), access_url: null };
   }
+  if (grant.kind === "delegated") {
+    throw new ProofAccessValidationError("Shared links can only be revoked. Create a new link to change access.");
+  }
   const deadline = activationDeadline(now);
   if (input.action === "regenerate") {
     await revokeProofGrant(grantId, now, auditContext);
@@ -415,7 +422,9 @@ export async function updateProofGrant(
     expires_at: expiresAt,
     expires_at_epoch: expiresEpoch
   };
-  await persistProofGrant(updated);
+  if (!await replaceProofGrant(grant, updated)) {
+    throw new ProofAccessValidationError("Access changed. Refresh and try again.");
+  }
   await recordProofAuditEvent({
     action: "proof.grant_updated",
     order_number: updated.order_number,
@@ -444,7 +453,7 @@ export async function exchangeProofToken(
   if (
     !grant ||
     !activeGrant(grant, now) ||
-    grant.exchanged_at ||
+    (grant.kind !== "delegated" && grant.exchanged_at) ||
     !ltlDemoOrderAllowed(config, grant.order_number)
   ) {
     throw new ProofAccessDeniedError();
@@ -452,7 +461,8 @@ export async function exchangeProofToken(
   if (!(await revalidateProofCustomerCapability(grant, readWorkspace))) {
     throw new ProofAccessDeniedError();
   }
-  const claimed = await claimProofGrant(grant, now.toISOString());
+  await validateDelegatedProofAuthority(grant, now, readWorkspace);
+  const claimed = grant.kind === "delegated" ? grant : await claimProofGrant(grant, now.toISOString());
   if (!claimed) {
     throw new ProofAccessDeniedError();
   }
@@ -465,6 +475,7 @@ export async function exchangeProofToken(
     Date.parse(claimed.expires_at)
   ));
   const session: ProofAccessSession = {
+    ...(claimed.kind === "delegated" ? { delegated: true } : {}),
     session_id: `psession_${randomUUID()}`,
     session_hash: hashSecret(rawSession),
     grant_id: claimed.grant_id,
@@ -525,12 +536,13 @@ export async function validateProofSession(
   ) {
     throw new ProofAccessDeniedError();
   }
-  const grant = await getProofGrantById(session.grant_id);
+  const grant = await getProofGrantForOrder(session.order_number, session.grant_id);
   if (
     !grant ||
     !activeGrant(grant, now) ||
     grant.order_number !== session.order_number ||
     grant.scope !== session.scope ||
+    Boolean(session.delegated) !== (grant.kind === "delegated") ||
     !capabilityAllowsScope(grant.capability, grant.scope) ||
     JSON.stringify(session.capability ?? null) !== JSON.stringify(grant.capability ?? null)
   ) {
@@ -539,7 +551,27 @@ export async function validateProofSession(
   if (!(await revalidateProofCustomerCapability(grant, readWorkspace))) {
     throw new ProofAccessDeniedError();
   }
+  await validateDelegatedProofAuthority(grant, now, readWorkspace);
   return { session, grant };
+}
+
+/** Re-check the parent on every recipient exchange and authenticated request. */
+async function validateDelegatedProofAuthority(
+  grant: ProofAccessGrant, now: Date, readWorkspace?: ProofCustomerCapabilityAuthorityReader
+) {
+  if (grant.kind !== "delegated") {
+    if (grant.parent_grant_id) throw new ProofAccessDeniedError();
+    return;
+  }
+  if (!proofSharingScopeAllowed(grant) || !grant.parent_grant_id || !grant.capability) throw new ProofAccessDeniedError();
+  const parent = await getProofGrantForOrder(grant.order_number, grant.parent_grant_id);
+  if (!parent || !activeGrant(parent, now) || parent.kind || parent.parent_grant_id ||
+      parent.scope !== "review" || parent.capability?.access_mode !== "review" ||
+      JSON.stringify(parent.capability) !== JSON.stringify(grant.capability) ||
+      Date.parse(grant.expires_at) > Date.parse(parent.expires_at) ||
+      !await revalidateProofCustomerCapability(parent, readWorkspace)) {
+    throw new ProofAccessDeniedError();
+  }
 }
 
 export async function extendProofSession(rawSession: string, now = new Date()) {

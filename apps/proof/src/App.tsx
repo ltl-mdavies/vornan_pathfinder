@@ -28,6 +28,7 @@ import {
 import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh } from "./api";
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import { highResolutionFormatDiffers } from "./proof-file-format";
+import { ShareOrder } from "./share-order";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
   PROOF_FEEDBACK_CHECK_INTERVAL_MS,
@@ -1974,6 +1975,7 @@ export function App() {
             {customerProofCounts.awaitingProof ? <div><dt>Awaiting proof</dt><dd>{customerProofCounts.awaitingProof}</dd></div> : null}
             {customerProofCounts.updatingProof ? <div><dt>Updating proof</dt><dd>{customerProofCounts.updatingProof}</dd></div> : null}
           </dl>
+          {order!.access.sharing_enabled && order!.access.sharing_context ? <ShareOrder key={`${order!.order_number}:${order!.access.sharing_context}`} order={order!} /> : null}
         </div>
       </section>
 

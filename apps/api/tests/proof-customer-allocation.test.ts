@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { createCustomerAllocationService, customerAllocationScopeAllowed, type AllocationRequest } from "../src/proof/customer-quantity-service.ts";
 import type { CustomerAllocation } from "../src/proof/customer-allocation-store.ts";
 import type { ProofAccessSession, ProofOrder } from "@pathfinder/proof-domain";
 
+for (const delegated of [false, true]) describe(delegated ? "delegated reviewer allocations" : "original reviewer allocations", () => {
 const timestamp = "2026-10-22T12:00:00.000Z";
 const session = {
+  delegated,
   session_id: "psession_test", grant_id: "pgrant_test", order_number: "A0229638", participant_id: "pparticipant_test", scope: "review",
   capability: { proof_customer_id: "1249", access_mode: "review", review_experience: "advanced" }
 } as ProofAccessSession;
@@ -168,4 +170,5 @@ test("receipt visibility is bound to customer, grant and participant", async () 
     assert.deepEqual(await f.service.list({ ...f.context, session: identity }), []);
     await assert.rejects(f.service.advance({ ...f.context, session: identity, batch_id: f.saved.batch_id }));
   }
+});
 });

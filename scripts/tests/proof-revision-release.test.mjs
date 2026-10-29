@@ -112,7 +112,8 @@ test("revision variables are confined to the public function without changing wo
       else assert.equal(env[key], undefined, `${name} must not receive ${key}`);
     }
   }
-  for (const name of ["ProofSyncFunction", "ProofOperatorFunction"]) {
-    assert.deepEqual(template.Resources[name].Properties.Code.S3Key, { Ref: "PublicLambdaCodeS3Key" });
-  }
+  assert.deepEqual(template.Resources.ProofSyncFunction.Properties.Code.S3Key, { Ref: "PublicLambdaCodeS3Key" });
+  assert.deepEqual(template.Resources.ProofOperatorFunction.Properties.Code.S3Key, {
+    If: ["HasOperatorFunctionCodeOverride", { Ref: "OperatorFunctionCodeS3Key" }, { Ref: "PublicLambdaCodeS3Key" }]
+  });
 });

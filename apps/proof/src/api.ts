@@ -34,7 +34,7 @@ export interface ProofRevisionUploadTicket {
 }
 
 export class ProofApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code?: string) {
     super(message);
     this.name = "ProofApiError";
   }
@@ -58,7 +58,7 @@ async function api<T>(path: string, init?: RequestInit, csrf = false) {
   });
   const body = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
-    throw new ProofApiError(body?.error ?? "Proof access is unavailable.", response.status);
+    throw new ProofApiError(body?.error ?? "Proof access is unavailable.", response.status, body?.code);
   }
   return body as T;
 }
@@ -78,6 +78,30 @@ export async function loadProofOrder() {
     refresh_queued: boolean;
     session_expires_at: string;
   }>("/api/public/proof/order");
+}
+
+export interface SharedProofLink {
+  id: string; scope: "view" | "review"; description: string | null;
+  created_at: string; expires_at: string; status: "active" | "expired" | "revoked";
+}
+export interface ShareAuthority { expected_order_number: string; expected_share_context: string }
+export interface ShareLinkRequest extends ShareAuthority { idempotency_key: string; scope: "view" | "review"; days: number; description: string }
+const shareQuery = (authority: ShareAuthority) => new URLSearchParams({ order: authority.expected_order_number, context: authority.expected_share_context }).toString();
+export const loadSharedProofLinks = (authority: ShareAuthority) => boundedRevisionRequest((signal) => api<{ links: SharedProofLink[] }>(`/api/public/proof/shares?${shareQuery(authority)}`, { signal }));
+export const createSharedProofLink = (input: ShareLinkRequest) => boundedRevisionRequest((signal) => api<{ link: SharedProofLink; access_url: string }>(
+  "/api/public/proof/shares", { method: "POST", body: JSON.stringify(input), signal }, true
+));
+export const revokeSharedProofLink = (id: string, authority: ShareAuthority) => boundedRevisionRequest((signal) => api<{ link: SharedProofLink }>(
+  `/api/public/proof/shares/${encodeURIComponent(id)}?${shareQuery(authority)}`, { method: "DELETE", signal }, true
+));
+
+/** Persist only the request, never a link or secret. A different session cannot replay it. */
+export async function shareRecoveryStorageKey(orderNumber: string) {
+  const csrf = cookieValue("vornan_proof_csrf");
+  if (!csrf) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(csrf));
+  const marker = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `proof-share-request:${orderNumber}:${marker}`;
 }
 
 export async function loadProofHistory(taskId: string) {

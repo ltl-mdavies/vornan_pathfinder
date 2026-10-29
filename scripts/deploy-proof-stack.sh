@@ -7,6 +7,8 @@ artifact_bucket="${PATHFINDER_API_ARTIFACT_BUCKET:?Set PATHFINDER_API_ARTIFACT_B
 artifact_key="${PATHFINDER_PROOF_ARTIFACT_KEY:-proof/${environment_name}/vornan-proof-lambdas-$(date +%Y%m%d%H%M%S).zip}"
 # Preserve operator/sync code when releasing the public customer workflow.
 worker_artifact_key="${PATHFINDER_PROOF_WORKER_ARTIFACT_KEY:?Set PATHFINDER_PROOF_WORKER_ARTIFACT_KEY to the verified live shared artifact key.}"
+# Require the verified current override (explicit empty is valid for legacy stacks).
+operator_artifact_key="${PATHFINDER_PROOF_OPERATOR_ARTIFACT_KEY?Set PATHFINDER_PROOF_OPERATOR_ARTIFACT_KEY to the reviewed operator override, or explicitly empty for the legacy shared artifact.}"
 zip_path="outputs/vornan-proof-lambdas.zip"
 public_read_enabled="${PATHFINDER_PROOF_ENABLE_PUBLIC_READ:-false}"
 synthetic_qa_enabled="${PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA:-false}"
@@ -39,6 +41,9 @@ aws cloudformation deploy \
     PublicLambdaCodeS3Bucket="${artifact_bucket}" \
     PublicLambdaCodeS3Key="${worker_artifact_key}" \
     PublicFunctionCodeS3Key="${artifact_key}" \
+    OperatorFunctionCodeS3Key="${operator_artifact_key}" \
+    SharingEnabled="${PATHFINDER_PROOF_ENABLE_SHARING:-false}" \
+    SharingScopes="${PATHFINDER_PROOF_SHARING_SCOPES:-}" \
     PublicReadEnabled="${public_read_enabled}" \
     ReadOnlyActivationExpiresAt="${PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT:-}" \
     OperatorGrantCreationEnabled="${PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED:-false}" \
