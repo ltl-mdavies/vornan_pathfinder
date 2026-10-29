@@ -19,6 +19,8 @@ import {
 import { syncProofOrder } from "./service.js";
 import {
   getProofAssetUploadRuntimeConfig,
+  proofAssetUploadGateActive,
+  proofAssetUploadOrderAllowed as uploadOrderAllowed,
   type ProofAssetUploadRuntimeConfig
 } from "./asset-upload-config.js";
 import {
@@ -32,7 +34,6 @@ import {
   transitionProofAssetUpload
 } from "./asset-upload-store.js";
 import { getProofFeedbackAcknowledgement } from "./store.js";
-import { LTL_DEMO_ALL_ORDERS } from "./ltl-demo-qa-profile.js";
 
 const LTL_DEMO_CUSTOMER_ID = "1249";
 const CONTENT_POLICY_ID = "proof-revised-art-operator-v1";
@@ -171,21 +172,19 @@ function correlationId(value: string) {
 }
 
 function requireGate(now: Date, config: ProofAssetUploadRuntimeConfig) {
-  const expiry = config.activation_expires_at
-    ? Date.parse(config.activation_expires_at)
-    : Number.NaN;
-  if (
-    !config.enabled ||
-    !config.bucket_name ||
-    !Number.isFinite(expiry) ||
-    expiry <= now.getTime()
-  ) {
+  if (!proofAssetUploadGateActive(config, now)) {
     throw new ProofAssetUploadServiceError(
       "disabled",
       "Proof revised-art uploads are disabled or their bounded window has expired."
     );
   }
   return config;
+}
+
+function requireUploadCustomer(actor: ReturnType<typeof uploadActor>, config: ProofAssetUploadRuntimeConfig) {
+  if (actor.actor_type === "customer_session" && actor.proof_customer_id !== config.allowed_customer_id) {
+    throw new ProofAssetUploadServiceError("not_allowed", "Proof uploads are outside the permitted customer scope.");
+  }
 }
 
 function normalizedStatusRequest(value: ProofAssetUploadStatusRequest) {
@@ -222,10 +221,6 @@ function requireOperatorStatusGate(
       "Proof revised-art uploads are disabled or their bounded window has expired."
     );
   }
-}
-
-function uploadOrderAllowed(config: { allowed_order_numbers: string[] }, orderNumber: string) {
-  return config.allowed_order_numbers.includes(orderNumber) || config.allowed_order_numbers.includes(LTL_DEMO_ALL_ORDERS);
 }
 
 function isPrivateDurableProofAsset(record: ProofAssetUploadRecord) {
@@ -531,6 +526,7 @@ export function createProofAssetUploadService(
       const actor = uploadActor(input);
       const correlation = correlationId(input.correlation_id);
       const config = requireGate(currentTime, runtimeConfig());
+      requireUploadCustomer(actor, config);
       const request = normalizedPrepare(input.request, config);
       if (!uploadOrderAllowed(config, request.order_number)) {
         throw new ProofAssetUploadServiceError(
@@ -692,6 +688,7 @@ export function createProofAssetUploadService(
       const actor = uploadActor(input);
       const correlation = correlationId(input.correlation_id);
       const config = requireGate(currentTime, runtimeConfig());
+      requireUploadCustomer(actor, config);
       const orderNumber = input.request.order_number?.trim().toUpperCase();
       const assetId = input.request.asset_id?.trim();
       if (

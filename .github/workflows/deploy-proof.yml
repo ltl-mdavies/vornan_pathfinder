@@ -55,6 +55,10 @@ on:
         description: "Exact customer-id:order-number pairs; retain for receipt recovery when writes are disabled"
         required: false
         default: ""
+      proof_asset_upload_qa_window:
+        description: "Single-order LTL Demo upload override: UTC expiry|order, maximum 24 hours; no scan/publication/submission activation"
+        required: false
+        default: ""
       customer_allocation_scope:
         description: "Exact customer-id:order-number pairs; empty denies all allocations"
         required: false
@@ -228,6 +232,7 @@ jobs:
           CUSTOMER_ALLOCATION_SCOPE: ${{ inputs.customer_allocation_scope }}
           CUSTOMER_REVISION_SUBMISSION_ENABLED: ${{ inputs.customer_revision_submission_enabled }}
           CUSTOMER_REVISION_SCOPE: ${{ inputs.customer_revision_scope }}
+          PROOF_ASSET_UPLOAD_QA_WINDOW: ${{ inputs.proof_asset_upload_qa_window }}
           CUSTOMER_REVISION_UPLOAD_ENABLED: ${{ inputs.customer_revision_upload_enabled }}
           LTL_DEMO_QA_ENABLED: ${{ inputs.ltl_demo_qa_enabled }}
           LTL_DEMO_QA_PERSISTENT_ENABLED: ${{ inputs.ltl_demo_qa_persistent_enabled }}
@@ -297,6 +302,7 @@ jobs:
               ProofAssetUploadEnabled="${PROOF_ASSET_UPLOAD_ENABLED}" \
               ProofAssetUploadAllowedOrders="${PROOF_ASSET_UPLOAD_ALLOWED_ORDERS}" \
               ProofAssetUploadExpiresAt="${PROOF_ASSET_UPLOAD_EXPIRES_AT}" \
+              ProofAssetUploadQaWindow="${PROOF_ASSET_UPLOAD_QA_WINDOW}" \
               LtlDemoQaEnabled="${LTL_DEMO_QA_ENABLED}" \
               LtlDemoQaPersistentEnabled="${LTL_DEMO_QA_PERSISTENT_ENABLED}" \
               LtlDemoQaAllowedOrders="${LTL_DEMO_QA_ALLOWED_ORDERS}" \

@@ -76,6 +76,29 @@ test("disabling submission allows retained scope for read-only receipt recovery"
   assert.equal(permits({ CustomerRevisionScope: "1249:A0232139" }), true);
 });
 
+test("upload QA window is empty by default and accepts exactly one order with a UTC timestamp", () => {
+  assert.equal(defaults.ProofAssetUploadQaWindow, "");
+  assert.equal(inputs.proof_asset_upload_qa_window.default, "");
+  const pattern = new RegExp(template.Parameters.ProofAssetUploadQaWindow.AllowedPattern);
+  for (const value of ["", "2026-10-29T20:00:00Z|A0232139", "2026-10-29T20:00:00.123Z|A0232139"]) assert.ok(pattern.test(value), value);
+  for (const value of ["*", "LTL_DEMO_ALL", "2026-10-29T20:00:00Z|LTL_DEMO_ALL", "2026-10-29T20:00:00Z|A0232139,A0233367", "2026-10-29T20:00:00Z|*", "2026-10-29T20:00:00+00:00|A0232139", "2026-10-29T20:00:00Z|A123", "2026-10-29T20:00:00Z| A0232139"]) assert.equal(pattern.test(value), false, value);
+});
+
+test("upload QA override is public-only and wired through both isolated deployment entrypoints", () => {
+  const key = "PATHFINDER_PROOF_ASSET_UPLOAD_QA_WINDOW";
+  for (const [name, resource] of Object.entries(template.Resources)) {
+    if (resource.Type !== "AWS::Lambda::Function") continue;
+    const actual = resource.Properties.Environment?.Variables?.[key];
+    if (name === "ProofPublicFunction") assert.deepEqual(actual, {Ref: "ProofAssetUploadQaWindow"});
+    else assert.equal(actual, undefined, name);
+  }
+  assert.ok(source("scripts/deploy-proof-stack.sh").includes('ProofAssetUploadQaWindow="${PATHFINDER_PROOF_ASSET_UPLOAD_QA_WINDOW:-}"'));
+  const step = Object.values(workflow.jobs).flatMap(job => job.steps ?? []).find(step => step.run?.includes('ProofAssetUploadQaWindow='));
+  assert.equal(step.env.PROOF_ASSET_UPLOAD_QA_WINDOW, "${{ inputs.proof_asset_upload_qa_window }}");
+  assert.ok(step.run.includes('ProofAssetUploadQaWindow="${PROOF_ASSET_UPLOAD_QA_WINDOW}"'));
+  assert.equal(source("infra/aws/api-cloudformation.yaml").includes(key), false);
+});
+
 test("revision variables are confined to the public function without changing worker artifacts", () => {
   const expected = {
     PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_SUBMISSION: { Ref: "CustomerRevisionSubmissionEnabled" },
