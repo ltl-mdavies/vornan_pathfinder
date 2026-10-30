@@ -42,7 +42,7 @@ import {
   X
 } from "lucide-react";
 import type { LiftCustomer, LiftCustomerDirectory } from "@pathfinder/customer-directory";
-import { filterCustomers, reconcileCustomerDirectory } from "./customer-directory";
+import { filterCustomers, reconcileCustomerDirectory, parseCustomerOrderSummaries, type CustomerOrderSummary } from "./customer-directory";
 import {
   validateCanonicalOrder,
   type CanonicalFieldDefinition,
@@ -4629,6 +4629,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [operationsWorkspaceIds, setOperationsWorkspaceIds] = useState<string[] | null>(null);
   const [operationsSetupError, setOperationsSetupError] = useState<string | undefined>();
   const operationsSetupRequestRef = useRef(0);
+  const [customerOrderSummaries, setCustomerOrderSummaries] = useState<Record<string, CustomerOrderSummary>>({});
+  const [customerOrdersLoading, setCustomerOrdersLoading] = useState(false);
+  const customerOrdersRequestRef = useRef(0);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const selectedCustomerIdRef = useRef(selectedCustomerId);
   selectedCustomerIdRef.current = selectedCustomerId;
@@ -4936,6 +4939,23 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [openProductMapTool, setOpenProductMapTool] = useState<"preload" | "unit-library" | null>(null);
+
+  async function loadCustomerOrderSummaries() {
+    if (!operationsWorkspaceEnabled) return;
+    const requestId = ++customerOrdersRequestRef.current;
+    setCustomerOrdersLoading(true);
+    setCustomerOrderSummaries({});
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/operations/customer-orders`, { signal: AbortSignal.timeout(15_000) });
+      const summaries = parseCustomerOrderSummaries(await readJsonResponse<unknown>(response));
+      if (requestId === customerOrdersRequestRef.current) setCustomerOrderSummaries(summaries);
+    } catch {
+      // A missing endpoint, partial response or timeout must never imply "No orders yet".
+      if (requestId === customerOrdersRequestRef.current) setCustomerOrderSummaries({});
+    } finally {
+      if (requestId === customerOrdersRequestRef.current) setCustomerOrdersLoading(false);
+    }
+  }
 
   async function loadOperationsWorkspaceIds() {
     if (!operationsWorkspaceEnabled) return;
@@ -7010,7 +7030,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, []);
 
   useEffect(() => {
-    if (operationsWorkspaceEnabled && activeGlobalView === "Customer Directory") void loadOperationsWorkspaceIds();
+    if (operationsWorkspaceEnabled && activeGlobalView === "Customer Directory") {
+      void loadOperationsWorkspaceIds();
+      void loadCustomerOrderSummaries();
+    }
   }, [activeGlobalView]);
 
   useEffect(() => {
@@ -11313,7 +11336,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       </aside> : null}
 
       <section id="pathfinder-content" tabIndex={-1} className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"} data-admin-view={operationsShell ? activeGlobalView : undefined} data-customer-view={operationsShell && activeGlobalView === "Customers" ? activeCustomerView : undefined}>
-        {operationsWorkspaceEnabled && activeGlobalView === "Customer Directory" ? <OperationsCustomers customers={customers} workspaceIds={operationsWorkspaceIds} setupError={operationsSetupError} currentTab={activeCustomerView} updated={customerDirectory.loaded_at} refreshing={customerImportState === "loading"} warning={customerDirectory.warning} onSelect={operationsSelectCustomer} onRefresh={() => { void loadCustomers(); void loadOperationsWorkspaceIds(); }} /> : null}
+        {operationsWorkspaceEnabled && activeGlobalView === "Customer Directory" ? <OperationsCustomers customers={customers} workspaceIds={operationsWorkspaceIds} setupError={operationsSetupError} orderSummaries={customerOrderSummaries} ordersLoading={customerOrdersLoading} currentTab={activeCustomerView} updated={customerDirectory.loaded_at} refreshing={customerImportState === "loading"} warning={customerDirectory.warning} onSelect={operationsSelectCustomer} onRefresh={() => { void loadCustomers(); void loadOperationsWorkspaceIds(); void loadCustomerOrderSummaries(); }} /> : null}
         {activeGlobalView === "Customers" ? (
           <>
             {operationsShell ? <><CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory} tools={<button className="pf-customer-tools-toggle" aria-expanded={customerToolsOpen} aria-controls="customer-workspace-tools" onClick={() => setCustomerToolsOpen(!customerToolsOpen)}>Workspace tools</button>}/><CustomerRecordTabs tabs={visibleCustomerNavItems.filter(item => item.label !== "Intake Exceptions").map(item => item.label)} selected={activeCustomerView} onSelect={tab => requestGuardedNavigation(() => { closeJobDetail(); setOperationsProofOrder(null); setOpenTopbarMenu(null); setCustomerToolsOpen(false); setActiveCustomerView(tab as CustomerView); if (tab === "Import Methods") setIsImportMethodDetailOpen(false); })} onGlobalProof={() => { setOperationsProofOrder(null); shellNavigate("Proof"); }}/></> : null}

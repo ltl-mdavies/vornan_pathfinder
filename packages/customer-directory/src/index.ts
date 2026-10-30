@@ -12,6 +12,8 @@ export interface LiftCustomer {
   unpaid_total?: number | null;
   available_credit?: number | null;
   sales_rep?: string | null;
+  /** Undefined: the feed did not supply this column. Null: supplied but blank. */
+  primary_market?: string | null;
   default_invoice_email_address?: string | null;
   created_date?: string | null;
 }
@@ -148,6 +150,7 @@ export function parseLiftCustomerCsv(csv: string): LiftCustomer[] {
         customer_status: get(row, "CUSTOMER_STATUS"),
         crm_id: get(row, "CRM_ID"),
         sales_rep: get(row, "SALES_REP"),
+        primary_market: headerMap.has("PRIMARY_MARKET") ? get(row, "PRIMARY_MARKET") : undefined,
         default_invoice_email_address: get(row, "DEFAULT_INVOICE_EMAIL_ADDRESS"),
         created_date: get(row, "CREATED_DATE")
       };

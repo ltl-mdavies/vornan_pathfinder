@@ -29,6 +29,7 @@ import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSes
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import { highResolutionFormatDiffers } from "./proof-file-format";
 import { ShareOrder } from "./share-order";
+import { ReviewerSuccessToast } from "./reviewer-success-toast";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
   PROOF_FEEDBACK_CHECK_INTERVAL_MS,
@@ -90,7 +91,7 @@ type DetailDialog = { kind: "feedback" | "history"; task_id: string };
 type HistoryState = { status: "loading" | "ready" | "error"; versions: ProofVersion[]; message?: string };
 type DecisionRequestState = "idle" | "submitting" | "verifying" | "complete" | "error";
 type DecisionOutcome = "confirmed" | "reconciling" | "submission_uncertain" | "failed" | "proof_updated";
-type ActionOutcomeNotice = { title: string; detail: string };
+type ActionOutcomeNotice = { kind?: "reviewer_saved"; title: string; detail: string };
 type FeedbackImagePreview = { filename: string; url: string };
 
 const demoEnabled = import.meta.env.DEV && import.meta.env.VITE_PROOF_DEMO === "true";
@@ -957,7 +958,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
             ? allocationBlocked ?? "Review every creative, then confirm its quantity"
             : decisionsEnabled
               ? "One current, unshared proof can be approved"
-              : "Approval is not enabled for this review link"}
+              : singleApprovalBlocked ?? "Approval is not enabled for this review link"}
         </small>
       </div>}
       {multiProof ? (
@@ -1022,7 +1023,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
                   <MessageSquareText aria-hidden="true" /> Request changes
                 </button>
               </div>
-              {singleApprovalBlocked ? <small className="decision-guidance">{singleApprovalBlocked}</small> : null}
+              {singleApprovalBlocked && (mobile || decisionsEnabled) ? <small className="decision-guidance">{singleApprovalBlocked}</small> : null}
               {singleApprovalMessage ? <p className={`decision-result ${singleApprovalState}`} role="status">{singleApprovalMessage}</p> : null}
               {changeRequestMessage ? <p className={`decision-result ${changeRequestState}`} role="status">{changeRequestMessage}</p> : null}
             </>
@@ -1179,6 +1180,7 @@ export function App() {
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackImagePreview, setFeedbackImagePreview] = useState<FeedbackImagePreview | null>(null);
   const [actionOutcome, setActionOutcome] = useState<ActionOutcomeNotice | null>(null);
+  const reviewerButton = useRef<HTMLButtonElement>(null);
   const [clockMs, setClockMs] = useState(() => Date.now());
   const [sessionExtending, setSessionExtending] = useState(false);
   const [sessionExtendError, setSessionExtendError] = useState<string | null>(null);
@@ -1894,7 +1896,7 @@ export function App() {
       });
       identityBaseline.current = { name: identityName, email: identityEmail };
       identityDialogElement.current?.close();
-      setActionOutcome({ title: "Reviewer details saved", detail: "Your reviewer identity has been updated." });
+      setActionOutcome({ kind: "reviewer_saved", title: "Reviewer details saved", detail: "Your reviewer identity has been updated." });
     } catch (error) {
       if (loadStateRef.current.status !== "ready") return;
       if (error instanceof ProofApiError && error.status === 401) {
@@ -1924,7 +1926,7 @@ export function App() {
         setIdentitySaveUncertain(false);
         identityBaseline.current = { name: identityName, email: identityEmail };
         identityDialogElement.current?.close();
-        setActionOutcome({ title: "Reviewer details saved", detail: "The saved reviewer identity has been verified." });
+        setActionOutcome({ kind: "reviewer_saved", title: "Reviewer details saved", detail: "The saved reviewer identity has been verified." });
       } else {
         setIdentityError("The saved details don’t yet match these edits. Keep this draft open and check again before retrying a save.");
       }
@@ -2038,7 +2040,7 @@ export function App() {
           <strong>Proof</strong>
         </div>
         <div className="session-actions">
-          <button className="reviewer-button" type="button" onClick={(event) => openIdentityDialog(event.currentTarget)}>
+          <button ref={reviewerButton} className="reviewer-button" type="button" onClick={(event) => openIdentityDialog(event.currentTarget)}>
             <UserRound aria-hidden="true" />
             <span>{participant?.display_name ?? "Identify reviewer"}</span>
           </button>
@@ -2122,7 +2124,10 @@ export function App() {
             <span><strong>{completion.title}.</strong> {completion.detail}</span>
           </div>
         ) : null}
-        {actionOutcome ? (
+        {actionOutcome?.kind === "reviewer_saved" ? <ReviewerSuccessToast notice={actionOutcome} onDismiss={restoreFocus => {
+          setActionOutcome(current => current === actionOutcome ? null : current);
+          if (restoreFocus) reviewerButton.current?.focus({ preventScroll: true });
+        }}/> : actionOutcome ? (
           <div className="action-outcome-notice" role="status" aria-live="polite">
             <CheckCircle2 aria-hidden="true" />
             <span><strong>{actionOutcome.title}.</strong> {actionOutcome.detail}</span>

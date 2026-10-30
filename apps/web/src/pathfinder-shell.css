@@ -1,4 +1,8 @@
 @import "./pathfinder-startup.css";
+.pf-session .pf-identity-pill {display:inline-flex;align-items:center;gap:8px;border:1px solid #ffffff33;background:rgba(255,255,255,.08);border-radius:999px;padding:7px 13px;min-height:44px;font-size:10px;font-weight:800;overflow-wrap:anywhere}
+.pf-identity-pill svg {flex-shrink:0}
+.pf-identity-label{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:600px){.pf-session .pf-identity-pill{width:44px;min-width:44px;padding:0;justify-content:center}.pf-identity-pill .pf-identity-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}}
 /* Shared Admin shell only. Public Proof/Status and legacy opt-out are untouched. */
 /* Administration uses the same working scale as the reviewed customer workflows. */
 .pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) .panel {border-radius:6px;box-shadow:none;margin-bottom:12px;min-width:0}

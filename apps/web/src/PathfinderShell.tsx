@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { LogOut, type LucideIcon } from "lucide-react";
+import { UserRound, LogOut, type LucideIcon } from "lucide-react";
 import type { PathfinderAuthSession } from "./auth";
 import "./pathfinder-shell.css";
 import "../../../packages/ui/src/vornan-foundation.css";
@@ -16,7 +16,7 @@ export function PathfinderShell({ enabled, active, items, onNavigate, session, c
     <a className="pf-skip" href="#pathfinder-content">Skip to content</a>
     <header className="pf-masthead">
       <div className="pf-brand"><img src="/brand/vornan-wordmark.svg" alt="Vornan"/><span>Pathfinder</span></div>
-      <div className="pf-session">{session ? <><span>{session.displayName || session.email || "Signed in"}</span><button type="button" onClick={() => void session.signOut()} aria-label="Sign out"><LogOut size={17}/></button></> : <span>Local workspace</span>}</div>
+      <div className="pf-session">{session ? <><span className="pf-identity-pill" title={session.displayName || session.email || "Signed in"}><UserRound size={17} aria-hidden="true"/><span className="pf-identity-label">{session.displayName || session.email || "Signed in"}</span></span><button type="button" onClick={() => void session.signOut()} aria-label="Sign out"><LogOut size={17}/></button></> : <span>Local workspace</span>}</div>
     </header>
     <aside className="sidebar pf-rail"><nav aria-label="Primary" className="nav-list">
       {items.map(({ label, icon: Icon }) => <button key={label} type="button" className={`nav-item${active === label || (active === "Customer Directory" && label === "Customers") ? " nav-item-active" : ""}`} aria-current={active === label || (active === "Customer Directory" && label === "Customers") ? "page" : undefined} onClick={() => onNavigate(label)}><Icon size={18} aria-hidden="true"/><span>{label}</span></button>)}

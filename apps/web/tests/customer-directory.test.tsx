@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterCustomers, reconcileCustomerDirectory } from '../src/customer-directory';
+import { filterCustomers, reconcileCustomerDirectory, directoryFieldKey, directoryFieldLabel, parseCustomerOrderSummaries } from '../src/customer-directory';
 import type { LiftCustomer, LiftCustomerDirectory } from '@pathfinder/customer-directory';
 
 const customers: LiftCustomer[] = [
@@ -8,6 +8,20 @@ const customers: LiftCustomer[] = [
   {lift_customer_id: '174094', customer_name: 'Silicone Pasture', customer_number: '0000000549'}
 ];
 const directory = (rows = customers): LiftCustomerDirectory => ({customers: rows, source:'lift-endpoint', endpoint_url:'https://example.invalid', loaded_at:'2026-09-28T00:00:00Z'});
+
+test('directory field filters preserve missing/blank distinctions without label collisions', () => {
+  assert.equal(directoryFieldLabel(undefined), 'Unavailable');
+  assert.equal(directoryFieldLabel(null), 'Not recorded');
+  assert.notEqual(directoryFieldKey(undefined), directoryFieldKey('Unavailable'));
+  assert.notEqual(directoryFieldKey(null), directoryFieldKey('Not recorded'));
+});
+test('order summary validates dates and states rather than inventing no-order records', () => {
+  assert.throws(() => parseCustomerOrderSummaries({}));
+  assert.throws(() => parseCustomerOrderSummaries({items: [{customer_id:'1',status:'confirmed',order_number:'A1',confirmed_at:'bad'}]}));
+  assert.throws(() => parseCustomerOrderSummaries({items: [{customer_id:'1',status:'none'},{customer_id:'1',status:'none'}]}));
+  assert.equal(parseCustomerOrderSummaries({items: [{customer_id:'1',status:'date_unavailable'}]})['1']?.status, 'date_unavailable');
+  assert.equal(parseCustomerOrderSummaries({items: []})['1'], undefined);
+});
 
 test('full directory remains available and search finds names and IDs beyond the first eight customers', () => {
   assert.equal(filterCustomers(customers, '').length, 31);
