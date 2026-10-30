@@ -10,6 +10,16 @@ npx vite --config tests/ux/vite.config.ts
 
 Open http://127.0.0.1:5210. The generated JSON and evidence screenshots are ignored by Git. The production build does not import this entry point.
 
+### Combined Proof/catalog guard review
+
+The new generic catalog is off by default. To exercise it against synthetic records only:
+`PATHFINDER_UX_PORT=5440 PATHFINDER_UX_CATALOG=true npx vite --config tests/ux/vite.config.ts`.
+Use `?catalogReview=ready`, `reader`, `unknown`, or `pending`; the latter holds a simulated write for eight seconds then returns an uncertain result. Open a synthetic customer → Catalog. `tests/ux/catalog-preview.csv` is a new-row preview fixture for the first customer. All writes terminate in the in-memory adapter, never an external API. Counters show simulated writes and sign-outs. Item saves are deliberately rejected or interrupted; this fixture does not prove server persistence.
+
+Verify preview Keep/Discard and sign-out protection; pending controls; unresolved journal survival on reload; read-only status checking without replay; isolation when switching customers; preservation of Catalog for another allowed customer and Overview fallback when the new catalog is unavailable. The existing Artwork Catalog is a separate unchanged tool. The UI gate does not replace API grants.
+
+Run without `PATHFINDER_UX_CATALOG` to verify the new tab stays hidden. `&noCatalogIdentity` simulates absence of the stable signed-in identity and also hides it. For Proof guard/sign-out checks use the existing `?proofSettings=pending` fixture; its controls simulate sign-out without logging out of any real account. Do not deploy this harness.
+
 ### Deterministic startup checks
 
 Use `PATHFINDER_UX_PORT=5214 npx vite --config tests/ux/vite.config.ts` for an isolated follow-up beside the existing review. API requests still terminate in this same in-memory adapter.

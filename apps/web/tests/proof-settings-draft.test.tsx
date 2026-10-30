@@ -184,6 +184,6 @@ test("App wires customer-scoped navigation, beforeunload and response isolation 
   assert.match(app, /window.addEventListener\("beforeunload", handleBeforeUnload\)/);
   assert.match(app, /proofNeedsProtection/);
   assert.match(app, /key=\{selectedCustomerId\}\s+draft=\{customerProofDraft\(\)!\}/);
-  assert.match(app, /leavePrompt.scope !== "proof-settings" \? <button className="primary-button"/);
+  assert.match(app, /leavePrompt.scope !== "proof-settings" && leavePrompt.scope !== "catalog" \? <button className="primary-button"/);
   assert.match(app, /does not undo a saved change/);
 });

@@ -1,7 +1,10 @@
 import { isIntakeVisibilityAvailable } from "./intake-visibility";
 import { methodSaveMatches } from "./method-save-state";
 import { createSubmissionGuard, submissionDisposition } from "./submission-recovery";
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { catalogAvailable } from "./customer-catalog/catalog-access";
+import { catalogLeaveDisposition, createCatalogShellGuard, type CatalogShellController } from "./catalog-shell-guard";
+const AuthenticatedCatalogWorkspace = lazy(() => import("./customer-catalog/AuthenticatedCatalogWorkspace").then(module => ({ default: module.AuthenticatedCatalogWorkspace })));
 import { IntakeExceptions } from "./IntakeExceptions";
 import { IntakeDiagnostics } from "./IntakeDiagnostics";
 import {
@@ -161,7 +164,7 @@ import "./artwork-catalog/artwork-inspection-results.css";
 
 const operationsWorkspaceEnabled = import.meta.env.VITE_ENABLE_OPERATIONS_WORKSPACE === "true";
 type GlobalView = "Dashboard" | "Customers" | "Customer Directory" | "Targets" | "Jobs" | "Proof" | "Audit" | "Settings";
-type CustomerView = "Overview" | "Artwork Catalog" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Proof" | "Intake Exceptions" | "Settings";
+type CustomerView = "Overview" | "Catalog" | "Artwork Catalog" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Proof" | "Intake Exceptions" | "Settings";
 type JobArchiveFilter = "Active" | "Archived" | "All";
 type JobIntakeFilter = "All" | "Customer Dropbox" | "Operator";
 type JobStateFilter =
@@ -1633,6 +1636,7 @@ const customerNavItems: Array<{ label: CustomerView; icon: typeof Gauge }> = [
   ...(operationsWorkspaceEnabled ? [{ label: "Proof" as const, icon: ShieldCheck }] : []),
   { label: "Intake Exceptions", icon: AlertTriangle },
   { label: "Artwork Catalog", icon: FileText },
+  { label: "Catalog", icon: FileText },
   { label: "Import Methods", icon: Workflow },
   { label: "Output Product Map", icon: Database },
   { label: "Manual Import", icon: Upload },
@@ -4720,6 +4724,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const methodSaveInFlight = useRef(false);
   const proofSettingsDrafts = useRef(new globalThis.Map<string, ProofSettingsDraftController>());
   const [proofSettingsGuard, setProofSettingsGuard] = useState<ProofSettingsGuardState | null>(null);
+  const catalogShellGuard = useRef(createCatalogShellGuard());
+  const [, refreshCatalogGuard] = useState(0);
+  const catalogOperatorId = authSession?.userId ?? "";
+  const catalogOperatorRef = useRef(catalogOperatorId);
+  catalogOperatorRef.current = catalogOperatorId;
+  const registerCatalogController = useCallback((customerId: string, controller: CatalogShellController) => {
+    if (customerId !== selectedCustomerIdRef.current || catalogOperatorId !== catalogOperatorRef.current) return;
+    return catalogShellGuard.current.register(customerId, catalogOperatorId, controller);
+  }, [catalogOperatorId]);
+  const updateCatalogNavigation = useCallback(() => {
+    if (catalogOperatorId === catalogOperatorRef.current) refreshCatalogGuard(value => value + 1);
+  }, [catalogOperatorId]);
+  const catalogNavigation = catalogLeaveDisposition(catalogShellGuard.current.snapshot(selectedCustomerId, catalogOperatorId));
   const methodDraftRef = useRef({ workspace, mappings, activeMethodId, manualImportMethodId, activeCustomerView });
   methodDraftRef.current = { workspace, mappings, activeMethodId, manualImportMethodId, activeCustomerView };
   const [localDraftImportMethodIds, setLocalDraftImportMethodIds] = useState<string[]>([]);
@@ -4730,7 +4747,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [leavePrompt, setLeavePrompt] = useState<{
     title: string;
     body: string;
-    scope: "import-method" | "target" | "proof-settings";
+    scope: "import-method" | "target" | "proof-settings" | "catalog";
   } | null>(null);
   const [destructiveConfirmation, setDestructiveConfirmation] = useState<DestructiveConfirmation | null>(null);
   const leaveDialogRef = useRef<HTMLElement>(null);
@@ -7127,8 +7144,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
   const intakeVisibilityAvailable = selectedCustomerId === selectedCustomer.lift_customer_id && isIntakeVisibilityAvailable(import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS, import.meta.env.VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID, selectedCustomerId, Boolean(authSession));
   const operationsIntakeVisibilityAvailable = isIntakeVisibilityAvailable(import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS, import.meta.env.VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID, operationsExceptionCustomer, Boolean(authSession));
+  const customerCatalogAvailable = catalogAvailable(import.meta.env.VITE_ENABLE_CUSTOMER_CATALOG, import.meta.env.VITE_CUSTOMER_CATALOG_IDS, selectedCustomerId, Boolean(catalogOperatorId));
+  useEffect(() => {
+    // Preserve the selected tab only when it exists for the new customer/operator.
+    if (activeCustomerView === "Catalog" && !customerCatalogAvailable) setActiveCustomerView("Overview");
+  }, [activeCustomerView, customerCatalogAvailable]);
   const visibleCustomerNavItems = customerNavItems.filter(
     (item) => (item.label !== "Artwork Catalog" || artworkCatalogInternalPilotAvailable) &&
+      (item.label !== "Catalog" || customerCatalogAvailable) &&
       (item.label !== "Intake Exceptions" || intakeVisibilityAvailable)
   );
   const artworkCatalogFocusedShell = shouldUseArtworkCatalogFocusedShell({
@@ -8891,6 +8914,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function requestGuardedNavigation(action: () => void) {
+    const catalogState = catalogLeaveDisposition(catalogShellGuard.current.snapshot(selectedCustomerId, catalogOperatorId));
+    if (activeGlobalView === "Customers" && activeCustomerView === "Catalog" && catalogState !== "clear") {
+      pendingNavigationRef.current = action;
+      refreshCatalogGuard(value => value + 1);
+      setLeavePrompt({ scope: "catalog", title: "Leave customer catalog?", body: "Your unsaved item changes and import previews will be discarded. Saved catalog records will not change." });
+      return;
+    }
     const proofGuard = proofSettingsDrafts.current.get(selectedCustomerId)?.getSnapshot();
     const proofNavigation = proofSettingsNavigationState(selectedCustomerId, proofGuard);
     if (proofNavigation === "pending" || (activeGlobalView === "Customers" && activeCustomerView === "Settings" && proofNavigation === "confirm")) {
@@ -8937,7 +8967,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function savePromptChangesAndContinue() {
-    if (!leavePrompt || leavePrompt.scope === "proof-settings") {
+    if (!leavePrompt || leavePrompt.scope === "proof-settings" || leavePrompt.scope === "catalog") {
       return;
     }
 
@@ -8967,6 +8997,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     const scope = leavePrompt.scope;
     const targetId = selectedTarget?.target_id ?? null;
     if (scope === "proof-settings" && !proofSettingsDrafts.current.get(selectedCustomerId)?.discard()) return;
+    if (scope === "catalog") {
+      const disposition = catalogLeaveDisposition(catalogShellGuard.current.snapshot(selectedCustomerId, catalogOperatorId));
+      if (disposition === "pending" || disposition === "recovery-editing") return;
+      if (disposition === "dirty" && !catalogShellGuard.current.discard(selectedCustomerId, catalogOperatorId)) return;
+      // A clean unconfirmed request stays in its scoped recovery journal. Never discard or replay it here.
+    }
     setLeavePrompt(null);
     pendingNavigationRef.current = null;
 
@@ -11116,6 +11152,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     targetsPending: targets.length === 0 && targetsAndJobsState === "loading",
     registryPending: !canonicalRegistry && canonicalRegistryState === "loading"
   });
+  // Only deliberate UI sign-out is guarded. Forced expiry/security callbacks remain untouched.
+  const shellSession = authSession ? {
+    ...authSession,
+    signOut: async () => requestGuardedNavigation(() => {
+      void authSession.signOut().catch(error => setWorkspaceMessage(error instanceof Error ? error.message : "Sign out failed. Please try again."));
+    })
+  } : null;
 
   if (startup.error || startup.pending) {
     const loading = (
@@ -11146,11 +11189,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         }}
       />
     );
-    return operationsShell ? <PathfinderShell enabled active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={authSession}><section id="pathfinder-content" tabIndex={-1} className="workspace">{activeGlobalView === "Customers" && selectedCustomerId ? <CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory}/> : null}{loading}</section></PathfinderShell> : loading;
+    return operationsShell ? <PathfinderShell enabled active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={shellSession}><section id="pathfinder-content" tabIndex={-1} className="workspace">{activeGlobalView === "Customers" && selectedCustomerId ? <CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory}/> : null}{loading}</section></PathfinderShell> : loading;
   }
 
   return (
-    <PathfinderShell enabled={operationsShell} active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={authSession}>
+    <PathfinderShell enabled={operationsShell} active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={shellSession}>
       {!operationsShell ? <aside className="sidebar">
         <div className="brand-block">
           <img className="vornan-wordmark" src="/brand/vornan-wordmark.png" alt="Vornan" />
@@ -11274,7 +11317,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <strong>{authSession.displayName || "Signed in"}</strong>
               <span>{authSession.email || authSession.domain || "Google account"}</span>
             </div>
-            <button className="sidebar-user-signout" onClick={() => void authSession.signOut()} type="button" title="Sign out">
+            <button className="sidebar-user-signout" onClick={() => void shellSession?.signOut()} type="button" title="Sign out">
               <LogOut size={16} />
             </button>
           </div>
@@ -11668,6 +11711,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
                 </section>
               </>
+            ) : null}
+
+            {activeCustomerView === "Catalog" && customerCatalogAvailable ? (
+              <Suspense fallback={<p role="status">Loading customer catalog…</p>}>
+                <AuthenticatedCatalogWorkspace key={`${selectedCustomerId}:${catalogOperatorId}`} apiBaseUrl={apiBaseUrl} customerId={selectedCustomerId} onNavigationController={registerCatalogController} onNavigationState={updateCatalogNavigation} />
+              </Suspense>
             ) : null}
 
             {activeCustomerView === "Artwork Catalog" && artworkCatalogInternalPilotAvailable ? (
@@ -21006,21 +21055,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             >
               <div className="modal-section-header">
                 <div>
+                  {leavePrompt.scope === "catalog" ? <>
+                    <h2 id="leave-prompt-title">{catalogNavigation === "pending" ? "Please wait for the catalog request" : catalogNavigation === "recovery-editing" ? "Keep your recovery details" : leavePrompt.title}</h2>
+                    <p id="leave-prompt-description" className="vn-form-copy">{catalogNavigation === "pending" ? "A catalog request is still in progress. Please wait before leaving." : catalogNavigation === "recovery-editing" ? "A save is unconfirmed and this item or preview is still open. Return to the catalog to close it safely or check the save status. Your recovery record will be kept." : catalogNavigation === "clear" ? "There are no unsaved catalog entries. Any unconfirmed save remains available for recovery when you return." : leavePrompt.body}</p>
+                  </> : <>
                   <h2 id="leave-prompt-title">{leavePrompt.scope === "proof-settings" ? proofSettingsGuard?.pending ? "Please wait for Proof settings" : leavePrompt.title : leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "Check the save before leaving?" : "Save your changes before leaving?"}</h2>
                   <p id="leave-prompt-description" className="vn-form-copy">{leavePrompt.scope === "proof-settings" ? proofSettingsGuard?.pending ? "A settings request is still in progress. Please wait before leaving." : proofSettingsGuard?.unconfirmed ? "The last request may have completed. Discarding only clears your local entries—it does not undo a saved change. You can check saved settings when you return." : proofSettingsGuard?.dirty ? leavePrompt.body : "The request has finished. There are no unsaved Proof entries." : leavePrompt.scope === "target" && selectedTargetHasSharedUnsavedChanges ? leavePrompt.body : leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "The save may have completed. Check the saved method, or discard this local draft and reload the saved version." : "Your changes haven’t been saved."}</p>
+                  </>}
                 </div>
-                <button className="modal-close-button" onClick={cancelLeavePrompt} aria-label={leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending ? "Stay here" : "Keep editing"}>
+                <button className="modal-close-button" onClick={cancelLeavePrompt} aria-label={leavePrompt.scope === "catalog" ? "Return to catalog" : leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending ? "Stay here" : "Keep editing"}>
                   <X size={16} />
                 </button>
               </div>
               <div className="modal-action-row">
                 <button className="secondary-button" onClick={cancelLeavePrompt}>
-                  {leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending ? "Stay here" : "Keep editing"}
+                  {leavePrompt.scope === "catalog" ? "Return to catalog" : leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending ? "Stay here" : "Keep editing"}
                 </button>
-                <button className="secondary-button" disabled={leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending} onClick={() => void discardPromptChangesAndContinue()}>
-                  {leavePrompt.scope === "proof-settings" && proofSettingsGuard?.unconfirmed ? "Discard local entries" : leavePrompt.scope === "proof-settings" && !proofSettingsGuard?.pending && !proofSettingsGuard?.dirty ? "Continue" : "Discard changes"}
+                <button className="secondary-button" disabled={leavePrompt.scope === "catalog" ? catalogNavigation === "pending" || catalogNavigation === "recovery-editing" : leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending} onClick={() => void discardPromptChangesAndContinue()}>
+                  {leavePrompt.scope === "catalog" && catalogNavigation === "clear" ? "Continue" : leavePrompt.scope === "proof-settings" && proofSettingsGuard?.unconfirmed ? "Discard local entries" : leavePrompt.scope === "proof-settings" && !proofSettingsGuard?.pending && !proofSettingsGuard?.dirty ? "Continue" : "Discard changes"}
                 </button>
-                {leavePrompt.scope !== "proof-settings" ? <button className="primary-button" onClick={() => void savePromptChangesAndContinue()} disabled={workspaceState === "saving"}>
+                {leavePrompt.scope !== "proof-settings" && leavePrompt.scope !== "catalog" ? <button className="primary-button" onClick={() => void savePromptChangesAndContinue()} disabled={workspaceState === "saving"}>
                   {leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "Check saved method" : "Save changes"}
                 </button> : null}
               </div>
