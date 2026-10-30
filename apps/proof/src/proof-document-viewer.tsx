@@ -186,7 +186,7 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
     <div ref={viewerRef} className="proof-document-viewer" aria-busy={!document}>
       <div
         ref={viewportRef}
-        className={`proof-document-viewport ${zoomed ? "zoomed" : "fit"}`}
+        className={`proof-document-viewport ${zoomed ? "zoomed" : "fit"}${fitMode === "actual" ? " actual-size" : ""}`}
         style={viewerStyle}
         aria-label={`PDF proof viewer: ${filename ?? "selected artwork"}`}
       >
