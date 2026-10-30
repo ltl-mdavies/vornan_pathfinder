@@ -1,7 +1,7 @@
 # Post-release UX refinement candidate
 
 Baseline: `cd7fb1f4bfe47e0141125d9faef5a353eaf209de`.
-Status: implemented for local review; **not deployed**. Final UX review and remaining release checks are required.
+Status: approved for the scoped release after final artifact, rollback and concurrency gates; deployment receipts are maintained in private release storage.
 
 ## Scope
 
@@ -45,6 +45,8 @@ Proof: `http://127.0.0.1:5407/?scenario=multi#/proof`; scenarios: view, review, 
 
 ## Release gate
 
-UX accepted the visual candidate and one-minute tooltip clarification. Remaining: authenticated full-App integration/dirty-form checks; production read-load acceptance; final configured artifacts/dry runs; durable rollback retention; latest revision/source checks. Keep deployment held. Do not change Share permissions or activate pending upload/email functionality as part of this batch.
+UX accepted the visual candidate and one-minute tooltip clarification. Authenticated full-App directory/navigation and import-method dirty-form checks passed. A bounded production check of the actual summary reader with 20 simultaneous requests and 20 warm repeats performed one underlying load (11 pages, 220 jobs, 2693 job read-capacity units), completing the cold batch in 1.274 seconds and the warm batch in under one millisecond. This clears the current small internal-directory read-load gate, not a distributed fleet or future-growth certification. Maintain the fail-closed budgets and revisit a maintained summary before expanding usage or history materially. Final configured artifact/dry-run, durable rollback and live concurrency checks remain mandatory before mutation. Do not change Share permissions or activate pending upload/email functionality as part of this batch.
+
+The pre-existing customer Proof-settings draft-navigation gap is tracked separately. No customer settings are saved or changed by this refinement batch; the existing import-method guard remains intact.
 
 Main API compatibility: canonical upload-gating correction f128f7a was intentionally deployed only to the public Proof Lambda. The main API retains older asset-upload-config.ts and asset-upload-service.ts by design. Proof owner confirmed this scope. A main-API-only isolated build must overlay those two modules from the freshly verified live source map, without reverting canonical source or deploying the public/operator/scanner functions. The local rehearsal verifies exact retained module hashes, unique source matches, unchanged dependencies and all non-main ZIP members. Its source-map diff allows only the new customer-order-summary module and changes to store, operations/router and customer-directory. A generic API rebuild/deploy would silently widen this scope and is prohibited for this release.
