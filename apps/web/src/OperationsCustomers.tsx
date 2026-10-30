@@ -85,7 +85,7 @@ export function OperationsCustomers({ customers, workspaceIds, setupError, updat
       </div>
       <div className="ops-directory-scroll" aria-busy={refreshing || (view === "pathfinder" && workspaceIds === null && !setupError)}>
         <table className="ops-customer-table" aria-label={view === "pathfinder" ? "Pathfinder customers" : "All Lift customers"}>
-          <thead><tr><th scope="col">Customer</th><th scope="col">Primary market</th><th scope="col">Sales rep</th>{view === "pathfinder" ? <th scope="col" title="Latest recorded Pathfinder-to-Lift confirmation date for a non-archived production job. Not customer PO or Lift order creation time.">Last confirmed order</th> : null}<th scope="col">Pathfinder status</th><th scope="col"><span className="ops-visually-hidden">Open customer</span></th></tr></thead>
+          <thead><tr><th scope="col">Customer</th><th scope="col">Primary market</th><th scope="col">Sales rep</th>{view === "pathfinder" ? <th scope="col" title="Latest recorded Pathfinder-to-Lift confirmation date for a non-archived production job. Not customer PO or Lift order creation time. New confirmations may take up to one minute to appear.">Last confirmed order</th> : null}<th scope="col">Pathfinder status</th><th scope="col"><span className="ops-visually-hidden">Open customer</span></th></tr></thead>
           <tbody>{rows.slice(safePage * size, (safePage + 1) * size).map(customer => {
             const state = setupState(customer.lift_customer_id);
             const order = orderSummaries[customer.lift_customer_id];

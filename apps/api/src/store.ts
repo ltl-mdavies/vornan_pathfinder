@@ -4562,10 +4562,16 @@ export async function listCustomerOrderSummaries(customerIds: readonly string[])
     const table = resolveWorkspaceTables(process.env, ["jobs"]).jobs;
     const abortSignal = AbortSignal.timeout(12_000);
     let pages = 0;
+    let readCapacity = 0;
     for await (const page of paginateScan({ client: getDynamoClient(), pageSize: 100 }, {
-      TableName: table, ProjectionExpression: "#data", ExpressionAttributeNames: { "#data": "data" }, ConsistentRead: true
+      TableName: table, ProjectionExpression: "#data", ExpressionAttributeNames: { "#data": "data" }, ConsistentRead: true,
+      ReturnConsumedCapacity: "TOTAL"
     }, { abortSignal })) {
-      if (++pages > 1000) throw new Error("Customer order summary exceeded read budget");
+      pages++;
+      readCapacity += page.ConsumedCapacity?.CapacityUnits ?? 0;
+      if (readCapacity > 5_000 || (pages >= 25 && page.LastEvaluatedKey && Object.keys(page.LastEvaluatedKey).length)) {
+        throw new Error("Customer order summary exceeded read budget");
+      }
       for (const item of page.Items ?? []) summary.add(parseDynamoData<unknown>(item));
     }
   } else {

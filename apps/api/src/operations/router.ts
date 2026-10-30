@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { createCustomerOrderSummaryReader } from "./customer-order-summary.js";
 import { listWorkspaceCustomerIds, listOperationsCustomers, listCustomerOrderSummaries } from "../store.js";
 import { projectProofQueue } from "./proof-queue.js";
 import { decodeQueueCursor, readProofQueuePage } from "./proof-queue-store.js";
@@ -12,13 +13,14 @@ export function createOperationsRouter(deps: {
   diagnostics?: typeof readIntakeDiagnostics;
 } = {}) {
   const router = Router();
+  const readCustomerOrders = createCustomerOrderSummaryReader(deps.customerOrders ?? listCustomerOrderSummaries);
   router.get("/customer-orders", async (_req, res) => {
     if (!(deps.enabled ?? process.env.PATHFINDER_ENABLE_OPERATIONS_WORKSPACE === "true")) { res.sendStatus(404); return; }
     res.set("Cache-Control", "no-store");
     try {
       const ids = [...new Set(await (deps.workspaceIds ?? listWorkspaceCustomerIds)())];
-      const items = await (deps.customerOrders ?? listCustomerOrderSummaries)(ids);
-      res.json({ items: items.filter(row => ids.includes(row.customer_id)), checked_at: new Date().toISOString(), coverage: "persisted_confirmed_non_archived_production_jobs", timestamp_source: "pathfinder_confirmation" });
+      const snapshot = await readCustomerOrders(ids);
+      res.json({ ...snapshot, max_age_seconds: 60, coverage: "persisted_confirmed_non_archived_production_jobs", timestamp_source: "pathfinder_confirmation" });
     } catch { res.status(503).json({ error: "Customer order history is unavailable. Refresh to retry." }); }
   });
   router.get("/intake-diagnostics", async (req, res) => {

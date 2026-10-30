@@ -6,6 +6,41 @@ export type CustomerOrderSummary = {
   confirmed_at?: string;
 };
 
+/** Per-process, one-entry cache: bounded memory, no cross-membership reuse or overlapping scans.
+ * This is a read-load guard, not a distributed index. Freshness is at most 60 seconds.
+ */
+export function createCustomerOrderSummaryReader(
+  load: (ids: readonly string[]) => Promise<CustomerOrderSummary[]>,
+  now: () => number = Date.now
+) {
+  type Snapshot = { items: CustomerOrderSummary[]; checked_at: string };
+  let cached: { key: string; expires: number; value: Snapshot } | undefined;
+  let pending: Promise<void> | undefined;
+  return async function read(ids: readonly string[]): Promise<Snapshot> {
+    const normalized = [...new Set(ids)].sort();
+    const key = JSON.stringify(normalized);
+    while (pending) await pending;
+    if (cached?.key === key && now() < cached.expires) return structuredClone(cached.value);
+    // Never serve an expired snapshot when the next read fails.
+    cached = undefined;
+    const started = now();
+    const task = (async () => {
+      const items = await load(normalized);
+      cached = { key, expires: started + 60_000, value: {
+        items: items.filter(row => normalized.includes(row.customer_id)),
+        checked_at: new Date(started).toISOString()
+      } };
+    })();
+    pending = task;
+    try {
+      await task;
+      return structuredClone(cached!.value);
+    } finally {
+      if (pending === task) pending = undefined;
+    }
+  };
+}
+
 export function customerOrderAccumulator(customerIds: readonly string[]) {
   const eligible = new Set(customerIds);
   const orders = new Map<string, Map<string, number | null>>();
