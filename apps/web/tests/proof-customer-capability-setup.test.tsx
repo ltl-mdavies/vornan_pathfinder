@@ -6,6 +6,7 @@ import {
   ProofCustomerCapabilitySetup,
   type CustomerProofCapabilityPolicy
 } from "../src/ProofCustomerCapabilitySetup";
+import { ProofSettingsDraftController } from "../src/proof-settings-draft";
 
 const policy: CustomerProofCapabilityPolicy = {
   access_mode: "review",
@@ -33,10 +34,10 @@ test("renders non-technical Proof access choices, explicit Advanced review, and 
       policy={policy}
       audit={[]}
       busy={false}
-      onSave={async () => undefined}
-      onVerifyIdentity={async () => undefined}
-      onUpsertOverride={async () => undefined}
-      onRemoveOverride={async () => undefined}
+      draft={new ProofSettingsDraftController("1249", policy)}
+      onExecute={async () => ({ policy })}
+      onRead={async () => ({ policy })}
+      onDraftStateChange={() => {}}
     />
   );
 
@@ -51,4 +52,20 @@ test("renders non-technical Proof access choices, explicit Advanced review, and 
   assert.match(markup, /Order exceptions/);
   assert.match(markup, /A0226753/);
   assert.match(markup, /simple review/);
+});
+
+test("unconfirmed recovery remains visible after local discard and explains replacement before adoption", async () => {
+  const draft = new ProofSettingsDraftController("1249", policy);
+  draft.edit({ accessMode: "disabled" });
+  await draft.run({ kind: "defaults", value: { access_mode: "disabled", review_experience: "simple" } }, async () => { throw new Error("lost reply"); });
+  draft.discard();
+  const render = () => renderToStaticMarkup(<ProofCustomerCapabilitySetup policy={policy} audit={[]} busy={false} draft={draft}
+    onExecute={async () => ({ policy })} onRead={async () => ({ policy })} onDraftStateChange={() => {}}/>);
+  assert.match(render(), /Check saved settings/);
+  await draft.checkSaved(async () => ({ policy }));
+  const markup = render();
+  assert.match(markup, /replaces your local entries with the saved values/);
+  assert.match(markup, /does not undo the earlier request/);
+  assert.match(markup, /tabindex="-1"/);
+  assert.match(markup, /proof-settings-feedback-actions/);
 });

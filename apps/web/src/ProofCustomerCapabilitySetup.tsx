@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { Eye, EyeOff, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { ProofSettingsDraftController, type ProofSettingsGuardState, type ProofSettingsOperation, type ProofSettingsResult } from "./proof-settings-draft";
 
 export type CustomerProofAccessMode = "disabled" | "view_only" | "review";
 export type CustomerProofReviewExperience = "simple" | "advanced";
@@ -88,38 +89,35 @@ export function ProofCustomerCapabilitySetup({
   policy,
   audit,
   busy,
-  onSave,
-  onUpsertOverride,
-  onRemoveOverride,
-  onVerifyIdentity
+  draft,
+  onExecute,
+  onRead,
+  onDraftStateChange
 }: {
   policy: CustomerProofCapabilityPolicy;
   audit: CustomerProofCapabilityAuditEntry[];
   busy: boolean;
-  onSave: (value: Pick<CustomerProofCapabilityPolicy, "access_mode" | "review_experience">) => Promise<void>;
-  onUpsertOverride: (
-    orderNumber: string,
-    value: Pick<CustomerProofOrderOverride, "access_mode" | "review_experience">
-  ) => Promise<void>;
-  onRemoveOverride: (orderNumber: string) => Promise<void>;
-  onVerifyIdentity: (orderNumber: string) => Promise<void>;
+  draft: ProofSettingsDraftController;
+  onExecute: (operation: ProofSettingsOperation, expectedVersion: string) => Promise<ProofSettingsResult>;
+  onRead: () => Promise<ProofSettingsResult>;
+  onDraftStateChange: (state: ProofSettingsGuardState) => void;
 }) {
-  const [accessMode, setAccessMode] = useState(policy.access_mode);
-  const [experience, setExperience] = useState(policy.review_experience);
-  const [orderNumber, setOrderNumber] = useState("");
-  const [overrideAccess, setOverrideAccess] = useState<CustomerProofAccessMode>("review");
-  const [overrideExperience, setOverrideExperience] =
-    useState<CustomerProofReviewExperience>("simple");
-  const [identityOrderNumber, setIdentityOrderNumber] = useState("");
-
-  useEffect(() => {
-    setAccessMode(policy.access_mode);
-    setExperience(policy.review_experience);
-  }, [policy.access_mode, policy.review_experience, policy.updated_at]);
+  const state = useSyncExternalStore(draft.subscribe, draft.getSnapshot, draft.getSnapshot);
+  const { accessMode, experience, orderNumber, overrideAccess, overrideExperience, identityOrderNumber } = state.inputs;
+  const locked = busy || state.pending || state.unconfirmed;
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  const focusResult = useRef(false);
+  useEffect(() => { draft.refresh(policy); }, [draft, policy]);
+  useLayoutEffect(() => { onDraftStateChange(state); }, [state, onDraftStateChange]);
+  useLayoutEffect(() => {
+    if (focusResult.current && !state.pending && state.message && feedbackRef.current) {
+      focusResult.current = false;
+      feedbackRef.current.focus();
+    }
+  }, [state]);
 
   const chooseAccess = (next: CustomerProofAccessMode) => {
-    setAccessMode(next);
-    setExperience((current) => normalizedExperience(next, current));
+    draft.edit({ accessMode: next, experience: normalizedExperience(next, experience) });
   };
 
   return (
@@ -132,6 +130,18 @@ export function ProofCustomerCapabilitySetup({
         </div>
         <span className="proof-capability-safe-default"><ShieldCheck size={15} /> Advanced is never automatic</span>
       </div>
+
+      {state.message || state.changedRemotely || state.unconfirmed ? <div ref={feedbackRef} tabIndex={-1} className={`proof-settings-feedback ${state.unconfirmed || state.changedRemotely || state.previousAttempt ? "import-warning" : state.error ? "import-error" : "proof-settings-feedback-success"}`} role={state.error ? "alert" : "status"}>
+        <p>{state.message ?? (state.unconfirmed ? "The last request may have completed. Check saved settings before making another change." : "Saved settings changed while you were editing. Your entries are kept. Check the latest settings before saving.")}</p>
+        {state.canUseChecked ? <p>Use checked settings replaces your local entries with the saved values. It does not undo the earlier request.</p> : null}
+        <div className="proof-settings-feedback-actions">
+          {state.unconfirmed || state.changedRemotely || state.error ? <button type="button" className="secondary-button" disabled={busy || state.pending} onClick={() => { focusResult.current = true; void draft.checkSaved(onRead); }}>Check saved settings</button> : null}
+          {state.canUseChecked ? <button type="button" className="secondary-button" disabled={busy || state.pending} onClick={() => { focusResult.current = true; draft.useCheckedSettings(); }}>Use checked settings</button> : null}
+        </div>
+      </div> : null}
+      {state.previousAttempt ? <details className="proof-capability-audit"><summary>Previous request</summary><p>
+        {state.previousAttempt.kind === "defaults" ? "Customer default" : `Order ${state.previousAttempt.orderNumber}`} · {"value" in state.previousAttempt ? `${state.previousAttempt.value.access_mode.replaceAll("_", " ")} · ${state.previousAttempt.value.review_experience}` : state.previousAttempt.kind === "identity" ? "Verify identity" : "Remove exception"}. Outcome was not confirmed.
+      </p></details> : null}
 
       <div className="proof-experience-choice">
         <div>
@@ -146,15 +156,13 @@ export function ProofCustomerCapabilitySetup({
             value={identityOrderNumber}
             aria-label="Lift order used to verify Proof customer identity"
             placeholder="A0226753"
-            onChange={(event) => setIdentityOrderNumber(event.target.value.toUpperCase())}
+            disabled={locked}
+            onChange={(event) => draft.edit({ identityOrderNumber: event.target.value.toUpperCase() })}
           />
           <button
             type="button"
-            disabled={busy || !/^A\d{7,8}$/.test(identityOrderNumber)}
-            onClick={async () => {
-              await onVerifyIdentity(identityOrderNumber);
-              setIdentityOrderNumber("");
-            }}
+            disabled={locked || state.changedRemotely || !/^A\d{7,8}$/.test(identityOrderNumber)}
+            onClick={() => void draft.run({ kind: "identity", orderNumber: identityOrderNumber }, onExecute)}
           >Verify</button>
         </div>
       </div>
@@ -168,6 +176,7 @@ export function ProofCustomerCapabilitySetup({
               type="button"
               role="radio"
               aria-checked={accessMode === option.value}
+              disabled={locked}
               className={accessMode === option.value ? "is-selected" : ""}
               onClick={() => chooseAccess(option.value)}
             >
@@ -192,14 +201,14 @@ export function ProofCustomerCapabilitySetup({
           <button
             type="button"
             className={experience === "simple" ? "is-selected" : ""}
-            disabled={accessMode !== "review"}
-            onClick={() => setExperience("simple")}
+            disabled={locked || accessMode !== "review"}
+            onClick={() => draft.edit({ experience: "simple" })}
           >Simple</button>
           <button
             type="button"
             className={experience === "advanced" ? "is-selected" : ""}
-            disabled={accessMode !== "review"}
-            onClick={() => setExperience("advanced")}
+            disabled={locked || accessMode !== "review"}
+            onClick={() => draft.edit({ experience: "advanced" })}
           ><Sparkles size={14} /> Advanced</button>
         </div>
       </div>
@@ -209,12 +218,12 @@ export function ProofCustomerCapabilitySetup({
         <button
           className="primary-button"
           type="button"
-        disabled={busy || (accessMode !== "disabled" && !policy.customer_identity)}
-          onClick={() => void onSave({
+          disabled={locked || state.changedRemotely || (accessMode !== "disabled" && !policy.customer_identity)}
+          onClick={() => void draft.run({ kind: "defaults", value: {
             access_mode: accessMode,
             review_experience: normalizedExperience(accessMode, experience)
-          })}
-        >{busy ? "Saving" : "Save Proof Settings"}</button>
+          } }, onExecute)}
+        >{state.pending ? "Working…" : "Save Proof Settings"}</button>
       </div>
 
       <div className="proof-order-overrides">
@@ -230,7 +239,8 @@ export function ProofCustomerCapabilitySetup({
             <span>Lift order</span>
             <input
               value={orderNumber}
-              onChange={(event) => setOrderNumber(event.target.value.toUpperCase())}
+              disabled={locked}
+              onChange={(event) => draft.edit({ orderNumber: event.target.value.toUpperCase() })}
               placeholder="A0226753"
             />
           </label>
@@ -238,10 +248,10 @@ export function ProofCustomerCapabilitySetup({
             <span>Access</span>
             <select
               value={overrideAccess}
+              disabled={locked}
               onChange={(event) => {
                 const next = event.target.value as CustomerProofAccessMode;
-                setOverrideAccess(next);
-                setOverrideExperience((current) => normalizedExperience(next, current));
+                draft.edit({ overrideAccess: next, overrideExperience: normalizedExperience(next, overrideExperience) });
               }}
             >
               <option value="disabled">Proof off</option>
@@ -253,8 +263,8 @@ export function ProofCustomerCapabilitySetup({
             <span>Experience</span>
             <select
               value={overrideExperience}
-              disabled={overrideAccess !== "review"}
-              onChange={(event) => setOverrideExperience(event.target.value as CustomerProofReviewExperience)}
+              disabled={locked || overrideAccess !== "review"}
+              onChange={(event) => draft.edit({ overrideExperience: event.target.value as CustomerProofReviewExperience })}
             >
               <option value="simple">Simple</option>
               <option value="advanced">Advanced</option>
@@ -263,14 +273,11 @@ export function ProofCustomerCapabilitySetup({
           <button
             className="secondary-button"
             type="button"
-            disabled={busy || !/^A\d{7,8}$/.test(orderNumber)}
-            onClick={async () => {
-              await onUpsertOverride(orderNumber, {
+            disabled={locked || state.changedRemotely || !/^A\d{7,8}$/.test(orderNumber)}
+            onClick={() => void draft.run({ kind: "override", orderNumber, value: {
                 access_mode: overrideAccess,
                 review_experience: normalizedExperience(overrideAccess, overrideExperience)
-              });
-              setOrderNumber("");
-            }}
+              } }, onExecute)}
           >Add Exception</button>
         </div>
 
@@ -283,8 +290,8 @@ export function ProofCustomerCapabilitySetup({
                   type="button"
                   className="icon-button"
                   aria-label={`Remove Proof exception for ${override.order_number}`}
-                  disabled={busy}
-                  onClick={() => void onRemoveOverride(override.order_number)}
+                  disabled={locked || state.changedRemotely}
+                  onClick={() => void draft.run({ kind: "remove", orderNumber: override.order_number }, onExecute)}
                 ><Trash2 size={15} /></button>
               </div>
             ))}

@@ -28,6 +28,12 @@ All workspace typechecks, the Admin build and 1,385 tests passed (API 800, Proof
 
 ## Safety boundary
 
+### Proof settings draft guard (synthetic only)
+
+`?proofSettings=success&wrike_oauth=connected&wrike_customer_id=1249` opens the actual App's Customer Settings with in-memory Proof policies. No API/provider transport is used. The OAuth query only selects the existing Settings return route; no OAuth exchange occurs. Other modes: `failed` (400), `pending` (held until **Release synthetic request**), `unconfirmed` (503 without applying), `lost-response` (apply in memory, then 503). The visible request counters count simulated operations only. Unknown operations remain blocked by the existing harness.
+
+**Test unload handler** dispatches a cancelable synthetic beforeunload event to the real App listener and reports whether it was prevented. It does not prove that a browser will show its native reload/close dialog. Controller drafts and unresolved requests persist only within the running App, not through a full browser reload. Fixtures reset on reload.
+
 - All fetch requests terminate in the in-memory adapter; unknown routes fail closed.
 - Mutations return 423, except explicitly simulated workspace setup and the opt-in integration scenarios below. Neither reaches a server or provider.
 - No real email, Lift, Wrike, Proof approval, submission, archive or provider action is performed.

@@ -56,7 +56,7 @@ test("Administration styles are shell-scoped and preserve customer Proof and Pub
   assert.match(source, /data-admin-view=\{operationsShell \? activeGlobalView : undefined\}/);
   for (const scope of ['Targets', 'Settings', 'Audit']) assert.ok(css.includes(`[data-admin-view="${scope}"]`));
   const settings = section('{activeCustomerView === "Settings" ? (', '{activeGlobalView === "Targets" ? (');
-  for (const capability of ['ProofCustomerCapabilitySetup', 'saveCustomerProofCapability', 'Public Status Access', 'sourceConnections', 'selectedCustomer.customer_name']) assert.ok(settings.includes(capability), capability);
+  for (const capability of ['ProofCustomerCapabilitySetup', 'requestCustomerProofSettings', 'Public Status Access', 'sourceConnections', 'selectedCustomer.customer_name']) assert.ok(settings.includes(capability), capability);
 });
 
 test("Registry feedback belongs to its section and receives focus without clearing failed drafts", () => {
