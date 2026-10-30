@@ -70,7 +70,7 @@ import {
   type SavedQuantityDraft
 } from "./quantity-review-state";
 import { summarizeQuantityAssignment } from "./quantity-assignment";
-import { createFailClosedSessionTerminator, focusProofTerminalState, proofEntryState, sessionExpiryDelay, sessionSecondsRemaining, sessionWarningVisible } from "./session-state";
+import { createFailClosedSessionTerminator, focusProofTerminalState, ProofAccessExchangeError, proofEntryState, sessionExpiryDelay, sessionSecondsRemaining, sessionWarningVisible } from "./session-state";
 import type { ProofActivity, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
 
 type TerminalState = "link_unavailable" | "session_ended";
@@ -220,7 +220,9 @@ async function bootstrap() {
       await exchangeToken(entry.token);
     } catch (error) {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/link-unavailable`);
-      throw error;
+      throw new ProofAccessExchangeError(
+        error instanceof ProofApiError && [401, 403, 404, 410].includes(error.status)
+      );
     }
   }
   return loadProofOrder();
@@ -1223,7 +1225,21 @@ export function App() {
     void sessionTerminator.current();
   };
 
+  // All asynchronous ready-state writers must respect local teardown, even
+  // when a request started while the cookie/session was still authorized.
+  function canApplyProofResponse() {
+    if (sessionTerminator.current) return false;
+    const current = loadStateRef.current;
+    if (current.status === "error") return false;
+    if (current.status === "ready" && sessionExpiryDelay(current.session_expires_at) === 0) {
+      terminateSession();
+      return false;
+    }
+    return true;
+  }
+
   function applyProofLoad(result: ProofLoad) {
+    if (!canApplyProofResponse()) return null;
     const previousState = loadStateRef.current;
     const previousOrder = previousState.status === "ready" ? previousState.order : null;
     const previous = previousOrder
@@ -1285,6 +1301,7 @@ export function App() {
   }
 
   function applyCompletedAction(result: ProofLoad, task: ProofTask, outcome: ActionOutcomeNotice) {
+    if (!canApplyProofResponse()) return;
     const nextTaskId = replacementProofTaskId(result.order, task);
     const remainsInOpenQueue = Boolean(
       nextTaskId && filterProofTasks(result.order.tasks, "open").some((candidate) => candidate.task_id === nextTaskId)
@@ -1334,7 +1351,9 @@ export function App() {
     bootstrapPromise ??= bootstrap();
     bootstrapPromise.then(
       (result) => {
+        if (sessionTerminator.current) return;
         const order = applyProofLoad(result);
+        if (!order) return;
         const { refresh_queued: refreshQueued } = result;
         if (refreshQueued) {
           beginProofVerification(order);
@@ -1349,6 +1368,11 @@ export function App() {
         }
       },
       (error) => {
+        if (sessionTerminator.current) return;
+        if (error instanceof ProofAccessExchangeError) {
+          setLoadState({ status: "error", kind: "link_unavailable", message: error.message });
+          return;
+        }
         if (error instanceof ProofApiError && error.status === 401) {
           terminateSession();
           return;
@@ -1531,7 +1555,10 @@ export function App() {
       const result = demoEnabled
         ? { extended: true as const, expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }
         : await extendSession();
-      setLoadState({ ...loadState, session_expires_at: result.expires_at });
+      if (!canApplyProofResponse()) return;
+      const latest = loadStateRef.current;
+      if (latest.status !== "ready") return;
+      setLoadState({ ...latest, session_expires_at: result.expires_at });
       setClockMs(Date.now());
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
@@ -1631,6 +1658,7 @@ export function App() {
   const refreshAfterLiftProofUpdate = async (task: ProofTask) => {
     bootstrapPromise = null;
     const refreshed = await bootstrap();
+    if (!canApplyProofResponse()) return;
     setLoadState({
       status: "ready",
       order: refreshed.order,
@@ -1913,11 +1941,14 @@ export function App() {
     setFeedbackError(null);
     try {
       if (!demoEnabled) await acknowledgeFeedback(dialogTask.task_id);
+      if (!canApplyProofResponse()) return;
+      const latest = loadStateRef.current;
+      if (latest.status !== "ready") return;
       setLoadState({
-        ...loadState,
+        ...latest,
         order: {
-          ...loadState.order,
-          tasks: loadState.order.tasks.map((task) => task.task_id === dialogTask.task_id
+          ...latest.order,
+          tasks: latest.order.tasks.map((task) => task.task_id === dialogTask.task_id
             ? { ...task, feedback_acknowledged: true }
             : task)
         }

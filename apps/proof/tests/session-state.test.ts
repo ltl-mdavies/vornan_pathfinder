@@ -3,12 +3,24 @@ import test from "node:test";
 import {
   createFailClosedSessionTerminator,
   focusProofTerminalState,
+  ProofAccessExchangeError,
   proofEntryState,
   sessionExpiryDelay,
   sessionSecondsRemaining,
   sessionWarningVisible
 } from "../src/session-state.ts";
 import { watchProofAccessNavigation } from "../src/session-state.ts";
+
+test("exchange errors preserve their stage without retaining credentials or claiming transient failure is expiry", () => {
+  const rejected = new ProofAccessExchangeError(true);
+  assert.equal(rejected.name, "ProofAccessExchangeError");
+  assert.match(rejected.message, /invalid, expired, or has already been used/);
+  const unavailable = new ProofAccessExchangeError(false);
+  assert.match(unavailable.message, /couldn’t open/);
+  assert.doesNotMatch(unavailable.message, /expired|already been used/);
+  assert.equal("cause" in rejected, false);
+  assert.equal("token" in rejected, false);
+});
 
 test("new access navigation reloads once without replaying workspace refreshes", () => {
   let listener: (() => void) | undefined;
