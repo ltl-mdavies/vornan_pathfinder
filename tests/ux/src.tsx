@@ -10,11 +10,15 @@ import { SOURCE_CONNECTOR_DEFINITIONS } from "../../packages/source-connections/
 import { createIntegrationReview, type IntegrationSeed } from "./integration-fixtures";
 import { createSubmissionReview, type SubmissionSeed } from "./submission-fixtures";
 import { createStartupReview } from "./startup-fixtures";
+import { createProofSettingsReview } from "./proof-settings-fixtures";
+import { createCatalogReview } from "./catalog-fixtures";
 
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
 const query = new URLSearchParams(location.search);
 const startupReview = createStartupReview(query);
+const proofSettingsReview = query.has("proofSettings") ? createProofSettingsReview(fixtures.workspaces, query) : null;
+const catalogReview = query.has("catalogReview") ? createCatalogReview(query) : null;
 if (query.has("manualImport")) {
   const workspace = fixtures.workspaces["284619"];
   const route = workspace.output_routes[0];
@@ -97,6 +101,10 @@ window.fetch = async (input, init) => {
   const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   calls.push({url:url.pathname,method});
   if (url.origin !== location.origin) return response({error:"Local review blocks every off-origin request."},423);
+  if (catalogReview) {
+    const simulated = await catalogReview.handle(url.pathname, method);
+    if (simulated) return simulated;
+  }
   if (url.pathname === "/api/operations/intake-diagnostics" && method === "GET") {
     if (query.get("intakeDiagnostics") === "unavailable") return response({ error: "Synthetic diagnostic storage unavailable" }, 503);
     if (query.get("intakeDiagnostics") === "slow") await new Promise(resolve => setTimeout(resolve, 2500));
@@ -122,6 +130,10 @@ window.fetch = async (input, init) => {
     if (simulated) return simulated;
   }
   const customer = url.pathname.match(/\/customers\/([^/]+)/)?.[1];
+  if (proofSettingsReview) {
+    const simulated = await proofSettingsReview.handle(url.pathname, method, init?.body ? JSON.parse(String(init.body)) : undefined);
+    if (simulated) return simulated;
+  }
   if (customer && query.get("slow") === customer) await new Promise(resolve=>setTimeout(resolve,1800));
   if (integration) {
     if (method === "GET" && customer && url.pathname.endsWith("/workspace") && !configured.has(customer)) return response({error:"Workspace not set up"},404);
@@ -173,8 +185,30 @@ window.fetch = async (input, init) => {
   return response({error:`Local review has no fixture for ${url.pathname}. No live request was made.`},503);
 };
 window.open = () => null;
-const authSession = {displayName:submission ? "Local QA · simulated submissions" : integration ? "Local QA · simulated saves" : "Local review · sample data",email:"review@example.invalid",photoURL:null,domain:"example.invalid",token:null,getIdToken:async()=>null,expireSession:async()=>{},signOut:async()=>{}};
+let syntheticSignOuts = 0;
+const authSession = {userId:query.has("noCatalogIdentity") ? undefined : "synthetic-operator",displayName:submission ? "Local QA · simulated submissions" : integration ? "Local QA · simulated saves" : "Local review · sample data",email:"review@example.invalid",photoURL:null,domain:"example.invalid",token:null,getIdToken:async()=>null,expireSession:async()=>{},signOut:async()=>{syntheticSignOuts++;}};
+if (catalogReview) {
+  const controls = document.createElement("aside"); controls.setAttribute("aria-label", "Synthetic catalog review");
+  Object.assign(controls.style,{position:"fixed",bottom:"8px",right:"8px",zIndex:"9999",background:"white",padding:"8px",fontSize:"12px"});
+  const count = document.createElement("span"), release = document.createElement("button");
+  release.textContent = "Release synthetic catalog request"; release.onclick = () => catalogReview.release();
+  controls.append(count, release); document.body.append(controls);
+  setInterval(() => { count.textContent = `Synthetic catalog only ${JSON.stringify({...catalogReview.counts(),signOuts:syntheticSignOuts})} `; },250);
+}
 const root = createRoot(document.getElementById("root")!);
+if (proofSettingsReview) {
+  const controls = document.createElement("aside");
+  controls.setAttribute("aria-label", "Synthetic Proof settings controls");
+  controls.style.cssText = "position:fixed;bottom:8px;right:8px;z-index:99999;background:white;padding:8px;border:1px solid #39523b";
+  const count = document.createElement("output");
+  const release = document.createElement("button"); release.textContent = "Release synthetic request";
+  release.onclick = () => proofSettingsReview.release();
+  const unload = document.createElement("button"); unload.textContent = "Test unload handler";
+  const unloadResult = document.createElement("output");
+  unload.onclick = () => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); unloadResult.textContent = event.defaultPrevented ? "Unload guarded" : "Unload clear"; };
+  controls.append(count, release, unload, unloadResult); document.body.append(controls);
+  setInterval(() => { count.textContent = `Synthetic only ${JSON.stringify({...proofSettingsReview.counts(),signOuts:syntheticSignOuts})} `; }, 250);
+}
 function SubmissionControls() {
   const [, update] = React.useReducer(value => value + 1, 0);
   React.useEffect(() => { const timer = setInterval(update, 250); return () => clearInterval(timer); }, []);

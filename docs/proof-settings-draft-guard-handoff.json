@@ -1,0 +1,56 @@
+{
+  "id": "PROOF-SETTINGS-DRAFT-GUARD",
+  "date": "2026-10-30",
+  "status": "implemented and locally verified; coordinated integration required; not deployed",
+  "branch": "codex/proof-settings-draft-guard",
+  "worktree": "/private/tmp/pathfinder-proof-settings-guard-20261030",
+  "base": "8ce652c216bbd7193216d63ea5c326ddc23c19c3",
+  "surface": "Pathfinder Admin: Customer record > Settings > Vornan Proof",
+  "release_impact": {
+    "frontend": "apps/web only; rebuild Admin bundle",
+    "customer_proof_app": "unchanged",
+    "status_app": "unchanged",
+    "api_and_infrastructure": "unchanged; existing settings endpoints and optimistic version precondition retained",
+    "live_actions": "none; no settings/access changes, proof decisions, uploads, email, activation or deployment"
+  },
+  "integration_contract": {
+    "controller": "ProofSettingsDraftController, one per customer in App proofSettingsDrafts ref Map; memory only",
+    "callback": "onDraftStateChange({ customerId, dirty, pending, unconfirmed }); component reports state in layout effect",
+    "synchronous_guard": "requestGuardedNavigation reads controller.getSnapshot directly, not asynchronously reported UI state",
+    "navigation": "proofSettingsNavigationState(customerId, state): clear | pending | confirm. Pending blocks leaving; dirty/unconfirmed prompts while in Customer Settings.",
+    "leave_prompt_scope": "proof-settings; Keep editing / Discard changes only; no automatic Save. Pending: Stay here, disabled discard. Unconfirmed: Discard local entries with explicit no-undo wording.",
+    "discard": "Controller.discard() returns false during pending; otherwise resets local inputs to last confirmed policy, makes no request and retains unresolved operation. It cannot undo executed verification/removal.",
+    "mutations": "onExecute(operation, expectedVersion) returns { policy, notice? } or throws; caller validates customer/shape, guards selected customer and workspace epoch, merges Proof fields only, preserves revoked-link count notice.",
+    "readback": "onRead() uses existing customer workspace GET with cache:no-store. Matching response confirms; differing response keeps uncertain lock with explicit Use checked settings escape.",
+    "explicit_resolution": "Use checked settings requires a completed authoritative read; replaces local entries, keeps Previous request reference and warns original request may still complete. No automatic replay. New writes retain expected_policy_updated_at.",
+    "background_refresh": "Dirty/pending/unconfirmed drafts are not reset by policy.updated_at changes. Dirty policy revision changes require an explicit check; older responses cannot replace newer known policy.",
+    "catalog": "Development owns separate Catalog dirty/busy integration after this commit. Import/target branches preserved; no Catalog behavior added here."
+  },
+  "verification": {
+    "admin_tests": "285 passing",
+    "proof_regression_tests": "116 passing",
+    "admin_typecheck": "passing",
+    "admin_build": "passing; pre-existing >500kB chunk warning remains",
+    "diff_check": "passing",
+    "synthetic_browser": [
+      "Actual full App: primary navigation prompts; Keep editing retains fields; discard performs zero simulated writes",
+      "Customer subtab guard and baseline restoration",
+      "Customer switch guard; no draft input carried into next customer",
+      "Confirmed save reports 2 revoked review links using synthetic response",
+      "Pending request blocks navigation/discard; model blocks duplicate submit, edits and concurrent read",
+      "Failed identity verification retains order input",
+      "Unconfirmed response survives Settings unmount; writes stay blocked; GET mismatch retains uncertainty",
+      "Explicit Use checked settings makes zero additional writes and retains prior-request reference",
+      "Lost successful response reconciles via read without replay",
+      "Actual App beforeunload listener tested with cancelable synthetic event: clean is clear; dirty is prevented"
+    ],
+    "ux": "Pathfinder UX scoped acceptance: 1366x768; dialog focus trap/Escape/restoration, pending Stay here, recovery copy, result focus, wrapping 8px actions, Previous request reference. docs/design/reviews/2026-10-30-proof-settings-guard/recheck.html in coordination workspace.",
+    "screenshot": "/private/tmp/pathfinder-proof-settings-guard-20261030/output/proof-settings-leave-dialog.jpg"
+  },
+  "limits": [
+    "Native browser reload/close prompt not verified: tool reload/Meta+r did not expose a dialog. Actual beforeunload handler was verified separately; do not equate the two.",
+    "Drafts and unresolved operations are memory-only. A full browser reload loses local state after its browser warning; this is not durable recovery.",
+    "No live permission or API action tests were performed; fixture evidence does not prove production provider behavior.",
+    "Combined Catalog/Proof navigation integration and final coordinated deployment smoke remain with Development. No independent deployment."
+  ]
+}

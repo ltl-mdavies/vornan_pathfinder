@@ -3,6 +3,7 @@ import type { LiftCustomer } from "@pathfinder/customer-directory";
 import { ChevronDown, ChevronRight, RefreshCw, Search } from "lucide-react";
 import { filterCustomers, directoryFieldKey, directoryFieldLabel, type CustomerOrderSummary } from "./customer-directory";
 import { OperationsPagination } from "./OperationsWorkspace";
+import { customerTabLabel } from "./customer-tabs";
 
 export function CustomerSwitcher({ customers, selectedId, onSelect }: {
   customers: LiftCustomer[]; selectedId: string; onSelect: (id: string) => void;
@@ -46,7 +47,7 @@ export function CustomerRecordHeader({ customers, customer, onSelect, onDirector
 export function CustomerRecordTabs({ tabs, selected, onSelect, onGlobalProof }: {
   tabs: string[]; selected: string; onSelect: (tab: string) => void; onGlobalProof: () => void;
 }) {
-  return <div className="ops-customer-tabs-row"><nav className="ops-tabs ops-customer-tabs" aria-label="Customer tabs">{tabs.map(tab => <button key={tab} aria-current={tab === selected || (tab === "Jobs" && selected === "Intake Exceptions") ? "page" : undefined} onClick={() => onSelect(tab)}>{tab === "Artwork Catalog" ? "Catalog" : tab}</button>)}</nav>{selected === "Proof" ? <button className="ops-link" onClick={onGlobalProof}>All-customer proof queue →</button> : null}</div>;
+  return <div className="ops-customer-tabs-row"><nav className="ops-tabs ops-customer-tabs" aria-label="Customer tabs">{tabs.map(tab => <button key={tab} aria-current={tab === selected || (tab === "Jobs" && selected === "Intake Exceptions") ? "page" : undefined} onClick={() => onSelect(tab)}>{customerTabLabel(tab, tabs)}</button>)}</nav>{selected === "Proof" ? <button className="ops-link" onClick={onGlobalProof}>All-customer proof queue →</button> : null}</div>;
 }
 
 export function OperationsCustomers({ customers, workspaceIds, setupError, updated, refreshing, warning, orderSummaries = {}, ordersLoading = false, onSelect, onRefresh }: {

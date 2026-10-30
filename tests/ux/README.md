@@ -10,6 +10,16 @@ npx vite --config tests/ux/vite.config.ts
 
 Open http://127.0.0.1:5210. The generated JSON and evidence screenshots are ignored by Git. The production build does not import this entry point.
 
+### Combined Proof/catalog guard review
+
+The new generic catalog is off by default. To exercise it against synthetic records only:
+`PATHFINDER_UX_PORT=5440 PATHFINDER_UX_CATALOG=true npx vite --config tests/ux/vite.config.ts`.
+Use `?catalogReview=ready`, `reader`, `unknown`, or `pending`; the latter holds a simulated write for eight seconds then returns an uncertain result. Open a synthetic customer → Catalog. `tests/ux/catalog-preview.csv` is a new-row preview fixture for the first customer. All writes terminate in the in-memory adapter, never an external API. Counters show simulated writes and sign-outs. Item saves are deliberately rejected or interrupted; this fixture does not prove server persistence.
+
+Verify preview Keep/Discard and sign-out protection; pending controls; unresolved journal survival on reload; read-only status checking without replay; isolation when switching customers; preservation of Catalog for another allowed customer and Overview fallback when the new catalog is unavailable. The existing Artwork Catalog is a separate unchanged tool. The UI gate does not replace API grants.
+
+Run without `PATHFINDER_UX_CATALOG` to verify the new tab stays hidden. `&noCatalogIdentity` simulates absence of the stable signed-in identity and also hides it. For Proof guard/sign-out checks use the existing `?proofSettings=pending` fixture; its controls simulate sign-out without logging out of any real account. Do not deploy this harness.
+
 ### Deterministic startup checks
 
 Use `PATHFINDER_UX_PORT=5214 npx vite --config tests/ux/vite.config.ts` for an isolated follow-up beside the existing review. API requests still terminate in this same in-memory adapter.
@@ -27,6 +37,12 @@ Startup follow-up acceptance, October 24, 2026: runtime `d6c37b1`, isolated bran
 All workspace typechecks, the Admin build and 1,385 tests passed (API 800, Proof 76, Status 17, Admin 252, shared packages 240). The first sandboxed API run could not bind local Supertest ports; rerunning with local bind permission passed without source changes. The existing bundle-size build warning remains. Development screenshots are in `output/startup-review/`; UX evidence is in its `login-startup-review/startup-checks.json` and accompanying screenshots. No login/auth behavior, public app, API or provider code was changed. The authenticated lazy fallback is source-contract covered; the synthetic App harness does not prove a real Firebase session restore. This follow-up remains **local and undeployed**, pending the coordinated login selection/review and Development release process.
 
 ## Safety boundary
+
+### Proof settings draft guard (synthetic only)
+
+`?proofSettings=success&wrike_oauth=connected&wrike_customer_id=1249` opens the actual App's Customer Settings with in-memory Proof policies. No API/provider transport is used. The OAuth query only selects the existing Settings return route; no OAuth exchange occurs. Other modes: `failed` (400), `pending` (held until **Release synthetic request**), `unconfirmed` (503 without applying), `lost-response` (apply in memory, then 503). The visible request counters count simulated operations only. Unknown operations remain blocked by the existing harness.
+
+**Test unload handler** dispatches a cancelable synthetic beforeunload event to the real App listener and reports whether it was prevented. It does not prove that a browser will show its native reload/close dialog. Controller drafts and unresolved requests persist only within the running App, not through a full browser reload. Fixtures reset on reload.
 
 - All fetch requests terminate in the in-memory adapter; unknown routes fail closed.
 - Mutations return 423, except explicitly simulated workspace setup and the opt-in integration scenarios below. Neither reaches a server or provider.

@@ -1,0 +1,36 @@
+{
+  "baseline": "8ce652c216bbd7193216d63ea5c326ddc23c19c3",
+  "scope": "Admin Proof settings draft safety and default-disabled generic customer catalog integration",
+  "owner_commits": {
+    "proof": "ad90765bb4b70a7b957c0fdebc5e69d7b2a0c865",
+    "catalog": "902438d0a938d1d0bb1c4ba0f4a5df3c5f9bc829",
+    "catalog_saved_history": "3afb7f98589cc8362c5fd6e51d70f2ba03b78bed"
+  },
+  "activation": "disabled; no grants, live imports, settings writes, emails or deployment are included",
+  "implementation_contract": [
+    "Proof settings drafts use the owner's synchronous per-customer controller; pending navigation blocks, known failures retain entries, uncertain outcomes require explicit read-only reconciliation",
+    "Explicit UI sign-out uses the existing navigation guard; forced authentication expiry is unchanged",
+    "Catalog is lazy loaded only for an explicit frontend customer allowlist and a stable signed-in UID; API independently authorizes verified user grants",
+    "Catalog controller binding and component key include customer and operator identity; stale instance cleanup cannot clear a replacement binding",
+    "Pending catalog writes block leaving; ordinary preview discard is local; clean unconfirmed journals can leave and remain scoped in browser storage without automatic replay",
+    "Switching to another enabled customer preserves Catalog; unavailable Catalog falls back to Overview; existing Artwork Catalog remains a separate tool",
+    "Invalid catalog configuration fails catalog routes closed without stopping unrelated API startup",
+    "No changes to public Proof/Status runtime, intake/reconciliation workers, canonical order fields or Lift export behavior"
+  ],
+  "remaining_release_gates": [
+    "Review exact final combined commit and private verification evidence before push/deployment",
+    "Preserve existing deployed API compatibility boundaries when packaging; local build success is not permission to replace differing live modules",
+    "Verify exact deployed configuration, authenticated grants and permanent storage behavior in an explicitly authorized isolated validation window",
+    "Independently verify selected pilot customer and source-record identity; review fresh import preview before real migration",
+    "Confirm named internal participants and reader/editor permissions; customer portal, artwork replacement and order submission remain disabled",
+    "Agree catalog retention and recovery targets before activation",
+    "Obtain explicit pilot activation approval after all gates clear"
+  ],
+  "known_limits": [
+    "Proof draft recovery is in-memory and survives Settings unmount, not full browser reload or sign-out; native browser close/reload prompt is not independently verified, although the actual beforeunload handler was exercised",
+    "Synthetic catalog fixture verifies UI isolation/recovery, not deployed storage persistence",
+    "Existing frontend large-chunk build warning remains",
+    "No claim of zero possible regression; automated and scoped browser evidence cover the reviewed paths"
+  ],
+  "rollback": "Keep gates disabled; revert only reviewed integration code if necessary. Never delete catalog records, immutable blobs, receipts or recovery evidence."
+}

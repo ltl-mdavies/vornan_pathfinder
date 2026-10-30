@@ -32,7 +32,8 @@
     "firebase-admin": "^14.2.0",
     "pdf-lib": "1.17.1",
     "serverless-http": "^4.0.0",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "@pathfinder/catalog-domain": "0.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

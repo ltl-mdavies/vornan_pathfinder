@@ -32,7 +32,7 @@ test("customer gates remain independent of job count and Catalog keeps its inter
   const app = await source("App.tsx"), customers = await source("OperationsCustomers.tsx");
   assert.match(app, /onIntakeFollowup=\{intakeVisibilityAvailable \?/);
   assert.match(app, /activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable/);
-  assert.match(customers, /tab === "Artwork Catalog" \? "Catalog" : tab/);
+  assert.match(customers, /customerTabLabel\(tab, tabs\)/);
   assert.match(customers, /tab === "Jobs" && selected === "Intake Exceptions"/);
 });
 test("inspector is read-only, named, keyboard-contained when modal, and opens full detail", async () => {

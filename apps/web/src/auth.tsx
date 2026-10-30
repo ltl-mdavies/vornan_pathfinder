@@ -6,6 +6,8 @@ import "./auth-screen.css";
 import { PATHFINDER_SESSION_EXPIRED_MESSAGE } from "./api-client";
 
 export interface PathfinderAuthSession {
+  /** Stable signed-in identity for local workspace isolation, never an authorization grant. */
+  userId?: string;
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
@@ -179,6 +181,7 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   return children({
+    userId: user.uid,
     displayName: user.displayName,
     email: user.email,
     photoURL: user.photoURL,

@@ -12197,6 +12197,10 @@ td {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.proof-settings-feedback { margin: 0; font-size: 12px; line-height: 1.4; }
+.proof-settings-feedback-success { color: var(--brand-forest); }
+.proof-settings-feedback-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
 .proof-order-overrides {
   display: grid;
   gap: 12px;

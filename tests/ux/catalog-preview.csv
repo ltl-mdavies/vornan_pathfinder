@@ -1,0 +1,2 @@
+Customer Number,Source ID,SKU,Name,Product,Width,Height,Material,Laminate,Varnish,Cut Type,Corners,Unwind,Roll Mode,Roll Value,Unit Price,Approval
+284619,qa-new,QA-NEW-001,Synthetic new label,Sample label,4,5,Example substrate,None,None,Laser,Square Corners,3-Right,Max Labels per Roll,1000,0.06,pending

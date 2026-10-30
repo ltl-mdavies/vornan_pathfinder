@@ -53,7 +53,13 @@ test("Firebase logic, allowlists, token and callbacks are unchanged from startup
   const logic = (s: string) => s.slice(s.indexOf("export interface PathfinderAuthSession"), s.indexOf("  if (!config && !authRequired)"));
   const session = (s: string) => s.slice(s.indexOf("  return children({"), s.indexOf("\n}", s.indexOf("  return children({")) + 2);
   // Frozen from d14b129; no Git-history dependency in shallow CI checkouts.
-  assert.equal(createHash("sha256").update(logic(source) + session(source)).digest("hex"), "5b87fdb2456b2388cdf790ba8d10426fddb258cc9383a973ba332e2d117c1c4c");
+  // Additive UID exposure isolates local catalog drafts; it does not alter provider or allowlist behavior.
+  assert.match(source, /userId\?: string;/);
+  assert.match(source, /return children\(\{\n    userId: user.uid,/);
+  const withoutCatalogIdentity = source
+    .replace("  /** Stable signed-in identity for local workspace isolation, never an authorization grant. */\n  userId?: string;\n", "")
+    .replace("    userId: user.uid,\n", "");
+  assert.equal(createHash("sha256").update(logic(withoutCatalogIdentity) + session(withoutCatalogIdentity)).digest("hex"), "5b87fdb2456b2388cdf790ba8d10426fddb258cc9383a973ba332e2d117c1c4c");
   assert.match(source, /if \(!config && !authRequired\)[\s\S]*return children\(null\)/);
   assert.match(source, /if \(!isAllowedDomain\(domain\)\)[\s\S]*state="restricted" onSignOut=\{handleSignOut\}/);
   assert.match(source, /onSignIn=\{handleSignIn\}/);

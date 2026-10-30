@@ -1,0 +1,15 @@
+.cc-auth-workspace { min-width: 0; }
+.cc-connection-bar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 20px; border: 1px solid #d9e0db; border-radius: 12px; background: #fff; }
+.cc-connection-bar > div { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.cc-connection-bar span, .cc-activation-note { color: #626e67; font-size: 12px; }
+.cc-activation-note { margin: 12px 2px 20px; }
+.cc-auth-workspace > .cc-feedback { margin-bottom: 12px; }
+.cc-save-recovery { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 18px 20px; margin-bottom: 16px; background: #fff8e8; border: 1px solid #e7d7ac; border-radius: 12px; color: #51482d; }
+.cc-save-recovery p { margin: 6px 0; font-size: 13px; }
+.cc-save-recovery small { font-size: 12px; }
+.cc-recovery-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.cc-connection-bar button, .cc-save-recovery button { border: 1px solid #cbd5cc; background: #fff; color: #234d3a; border-radius: 7px; padding: 9px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+.cc-auth-workspace button:disabled { cursor: not-allowed; opacity: .55; }
+.cc-auth-loading { padding: 48px 20px; color: #626e67; }
+
+.cc-auth-workspace .cc-modal-wide { width: min(1100px, calc(100vw - 48px)); }

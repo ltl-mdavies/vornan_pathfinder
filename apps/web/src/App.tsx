@@ -1,7 +1,10 @@
 import { isIntakeVisibilityAvailable } from "./intake-visibility";
 import { methodSaveMatches } from "./method-save-state";
 import { createSubmissionGuard, submissionDisposition } from "./submission-recovery";
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { catalogAvailable } from "./customer-catalog/catalog-access";
+import { catalogLeaveDisposition, createCatalogShellGuard, type CatalogShellController } from "./catalog-shell-guard";
+const AuthenticatedCatalogWorkspace = lazy(() => import("./customer-catalog/AuthenticatedCatalogWorkspace").then(module => ({ default: module.AuthenticatedCatalogWorkspace })));
 import { IntakeExceptions } from "./IntakeExceptions";
 import { IntakeDiagnostics } from "./IntakeDiagnostics";
 import {
@@ -134,6 +137,7 @@ import {
   type CustomerProofCapabilityPolicy,
   type CustomerProofReviewExperience
 } from "./ProofCustomerCapabilitySetup";
+import { ProofSettingsDraftController, ProofSettingsWriteError, proofSettingsNavigationState, proofSettingsResponseUncertain, proofSettingsPolicyOlder, validProofSettingsPolicy, type ProofSettingsGuardState, type ProofSettingsOperation } from "./proof-settings-draft";
 import { ImportMethodWorkbookSetup } from "./ImportMethodWorkbookSetup";
 import { WrikeIntakeBehaviorSetup } from "./WrikeIntakeBehaviorSetup";
 import { CompositeFieldMappingSetup } from "./CompositeFieldMappingSetup";
@@ -160,7 +164,7 @@ import "./artwork-catalog/artwork-inspection-results.css";
 
 const operationsWorkspaceEnabled = import.meta.env.VITE_ENABLE_OPERATIONS_WORKSPACE === "true";
 type GlobalView = "Dashboard" | "Customers" | "Customer Directory" | "Targets" | "Jobs" | "Proof" | "Audit" | "Settings";
-type CustomerView = "Overview" | "Artwork Catalog" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Proof" | "Intake Exceptions" | "Settings";
+type CustomerView = "Overview" | "Catalog" | "Artwork Catalog" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Proof" | "Intake Exceptions" | "Settings";
 type JobArchiveFilter = "Active" | "Archived" | "All";
 type JobIntakeFilter = "All" | "Customer Dropbox" | "Operator";
 type JobStateFilter =
@@ -1632,6 +1636,7 @@ const customerNavItems: Array<{ label: CustomerView; icon: typeof Gauge }> = [
   ...(operationsWorkspaceEnabled ? [{ label: "Proof" as const, icon: ShieldCheck }] : []),
   { label: "Intake Exceptions", icon: AlertTriangle },
   { label: "Artwork Catalog", icon: FileText },
+  { label: "Catalog", icon: FileText },
   { label: "Import Methods", icon: Workflow },
   { label: "Output Product Map", icon: Database },
   { label: "Manual Import", icon: Upload },
@@ -4717,6 +4722,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const savedMethodTitles = useRef(new globalThis.Map<string, string>());
   const [unconfirmedMethodSave, setUnconfirmedMethodSave] = useState<{ customerId: string; method: ImportMethod } | null>(null);
   const methodSaveInFlight = useRef(false);
+  const proofSettingsDrafts = useRef(new globalThis.Map<string, ProofSettingsDraftController>());
+  const [proofSettingsGuard, setProofSettingsGuard] = useState<ProofSettingsGuardState | null>(null);
+  const catalogShellGuard = useRef(createCatalogShellGuard());
+  const [, refreshCatalogGuard] = useState(0);
+  const catalogOperatorId = authSession?.userId ?? "";
+  const catalogOperatorRef = useRef(catalogOperatorId);
+  catalogOperatorRef.current = catalogOperatorId;
+  const registerCatalogController = useCallback((customerId: string, controller: CatalogShellController) => {
+    if (customerId !== selectedCustomerIdRef.current || catalogOperatorId !== catalogOperatorRef.current) return;
+    return catalogShellGuard.current.register(customerId, catalogOperatorId, controller);
+  }, [catalogOperatorId]);
+  const updateCatalogNavigation = useCallback(() => {
+    if (catalogOperatorId === catalogOperatorRef.current) refreshCatalogGuard(value => value + 1);
+  }, [catalogOperatorId]);
+  const catalogNavigation = catalogLeaveDisposition(catalogShellGuard.current.snapshot(selectedCustomerId, catalogOperatorId));
   const methodDraftRef = useRef({ workspace, mappings, activeMethodId, manualImportMethodId, activeCustomerView });
   methodDraftRef.current = { workspace, mappings, activeMethodId, manualImportMethodId, activeCustomerView };
   const [localDraftImportMethodIds, setLocalDraftImportMethodIds] = useState<string[]>([]);
@@ -4727,7 +4747,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [leavePrompt, setLeavePrompt] = useState<{
     title: string;
     body: string;
-    scope: "import-method" | "target";
+    scope: "import-method" | "target" | "proof-settings" | "catalog";
   } | null>(null);
   const [destructiveConfirmation, setDestructiveConfirmation] = useState<DestructiveConfirmation | null>(null);
   const leaveDialogRef = useRef<HTMLElement>(null);
@@ -5198,120 +5218,61 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWorkspaceState("idle");
   }
 
-  async function saveCustomerProofCapability(value: {
-    access_mode: CustomerProofAccessMode;
-    review_experience: CustomerProofReviewExperience;
-  }) {
-    setWorkspaceState("saving");
-    try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...value,
-            expected_policy_updated_at: workspace?.proof_capability_policy.updated_at
-          })
-        }
-      );
-      const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
-      setWorkspace(updatedWorkspace);
-      setWorkspaceMessage(updatedWorkspace.proof_access_revoked_count
-        ? `Vornan Proof customer settings saved. ${updatedWorkspace.proof_access_revoked_count} active review link${updatedWorkspace.proof_access_revoked_count === 1 ? " was" : "s were"} revoked so the new setting applies immediately.`
-        : "Vornan Proof customer settings saved.");
-    } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Proof customer settings could not be saved.");
-      setWorkspaceState("error");
-      return;
+  function customerProofDraft() {
+    if (!workspace || workspace.customer.lift_customer_id !== selectedCustomerId) return null;
+    let draft = proofSettingsDrafts.current.get(selectedCustomerId);
+    if (!draft) {
+      draft = new ProofSettingsDraftController(selectedCustomerId, workspace.proof_capability_policy);
+      proofSettingsDrafts.current.set(selectedCustomerId, draft);
     }
-    setWorkspaceState("idle");
+    return draft;
   }
 
-  async function verifyCustomerProofIdentity(orderNumber: string) {
-    setWorkspaceState("saving");
+  async function requestCustomerProofSettings(operation?: ProofSettingsOperation, expectedVersion?: string) {
+    const customerId = selectedCustomerId;
+    const workspaceEpoch = workspaceRequestIdRef.current;
+    const isCurrent = () => customerId === selectedCustomerIdRef.current && workspaceEpoch === workspaceRequestIdRef.current;
+    if (operation) setWorkspaceState("saving");
     try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy/identity`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            order_number: orderNumber,
-            expected_policy_updated_at: workspace?.proof_capability_policy.updated_at
-          })
-        }
-      );
+      const suffix = !operation ? "/workspace" : "/proof-capability-policy"
+        + (operation.kind === "identity" ? "/identity" : operation.kind === "override" || operation.kind === "remove" ? `/orders/${encodeURIComponent(operation.orderNumber)}` : "");
+      const response = await fetch(`${apiBaseUrl}/api/customers/${encodeURIComponent(customerId)}${suffix}`, operation ? {
+        method: operation.kind === "identity" ? "POST" : operation.kind === "remove" ? "DELETE" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(operation.kind === "defaults" || operation.kind === "override" ? operation.value : {}),
+          ...(operation.kind === "identity" ? { order_number: operation.orderNumber } : {}),
+          expected_policy_updated_at: expectedVersion
+        })
+      } : { cache: "no-store" });
+      if (!response.ok) {
+        // Never treat an unreadable success or a gateway/server failure as a safe retry.
+        let message = "Proof settings could not be saved. Your entries are kept.";
+        try { await readJsonResponse(response); } catch (error) { if (error instanceof Error) message = error.message; }
+        throw new ProofSettingsWriteError(message, proofSettingsResponseUncertain(response.status));
+      }
       const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
-      setWorkspace(updatedWorkspace);
-      setWorkspaceMessage(updatedWorkspace.proof_access_revoked_count
-        ? `Proof customer identity verified from ${orderNumber}. ${updatedWorkspace.proof_access_revoked_count} active review link${updatedWorkspace.proof_access_revoked_count === 1 ? " was" : "s were"} revoked.`
-        : `Proof customer identity verified from ${orderNumber}.`);
-    } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Proof customer identity could not be verified.");
-      setWorkspaceState("error");
-      return;
+      if (updatedWorkspace.customer?.lift_customer_id !== customerId || !validProofSettingsPolicy(updatedWorkspace.proof_capability_policy)) {
+        throw new ProofSettingsWriteError("The saved result could not be confirmed.", true);
+      }
+      if (isCurrent()) {
+        // Update only Proof data. A late settings response must not replace unrelated workspace drafts.
+        setWorkspace(current => current?.customer.lift_customer_id === customerId && !proofSettingsPolicyOlder(updatedWorkspace.proof_capability_policy, current.proof_capability_policy) ? {
+          ...current,
+          proof_capability_policy: updatedWorkspace.proof_capability_policy,
+          proof_capability_audit: updatedWorkspace.proof_capability_audit,
+          proof_access_revoked_count: updatedWorkspace.proof_access_revoked_count
+        } : current);
+      }
+      const count = updatedWorkspace.proof_access_revoked_count;
+      const saved = !operation ? undefined : operation.kind === "identity" ? `Proof customer identity verified from ${operation.orderNumber}.`
+        : operation.kind === "override" ? `Vornan Proof exception saved for ${operation.orderNumber}.`
+        : operation.kind === "remove" ? `Vornan Proof exception removed for ${operation.orderNumber}.` : "Vornan Proof customer settings saved.";
+      return { policy: updatedWorkspace.proof_capability_policy, notice: saved && count
+        ? `${saved} ${count} active review link${count === 1 ? " was" : "s were"} revoked so ${operation?.kind === "remove" ? "the customer default" : "the new setting"} applies immediately.` : saved };
+    } finally {
+      if (operation && isCurrent()) setWorkspaceState("idle");
     }
-    setWorkspaceState("idle");
-  }
-
-  async function saveCustomerProofOrderOverride(
-    orderNumber: string,
-    value: {
-      access_mode: CustomerProofAccessMode;
-      review_experience: CustomerProofReviewExperience;
-    }
-  ) {
-    setWorkspaceState("saving");
-    try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy/orders/${encodeURIComponent(orderNumber)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...value,
-            expected_policy_updated_at: workspace?.proof_capability_policy.updated_at
-          })
-        }
-      );
-      const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
-      setWorkspace(updatedWorkspace);
-      setWorkspaceMessage(updatedWorkspace.proof_access_revoked_count
-        ? `Vornan Proof exception saved for ${orderNumber}. ${updatedWorkspace.proof_access_revoked_count} active review link${updatedWorkspace.proof_access_revoked_count === 1 ? " was" : "s were"} revoked so the new setting applies immediately.`
-        : `Vornan Proof exception saved for ${orderNumber}.`);
-    } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Proof order exception could not be saved.");
-      setWorkspaceState("error");
-      return;
-    }
-    setWorkspaceState("idle");
-  }
-
-  async function removeCustomerProofOrderOverride(orderNumber: string) {
-    setWorkspaceState("saving");
-    try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy/orders/${encodeURIComponent(orderNumber)}`,
-        {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            expected_policy_updated_at: workspace?.proof_capability_policy.updated_at
-          })
-        }
-      );
-      const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
-      setWorkspace(updatedWorkspace);
-      setWorkspaceMessage(updatedWorkspace.proof_access_revoked_count
-        ? `Vornan Proof exception removed for ${orderNumber}. ${updatedWorkspace.proof_access_revoked_count} active review link${updatedWorkspace.proof_access_revoked_count === 1 ? " was" : "s were"} revoked so the customer default applies immediately.`
-        : `Vornan Proof exception removed for ${orderNumber}.`);
-    } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Proof order exception could not be removed.");
-      setWorkspaceState("error");
-      return;
-    }
-    setWorkspaceState("idle");
   }
 
   async function loadTargetsAndJobs() {
@@ -7183,8 +7144,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
   const intakeVisibilityAvailable = selectedCustomerId === selectedCustomer.lift_customer_id && isIntakeVisibilityAvailable(import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS, import.meta.env.VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID, selectedCustomerId, Boolean(authSession));
   const operationsIntakeVisibilityAvailable = isIntakeVisibilityAvailable(import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS, import.meta.env.VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID, operationsExceptionCustomer, Boolean(authSession));
+  const customerCatalogAvailable = catalogAvailable(import.meta.env.VITE_ENABLE_CUSTOMER_CATALOG, import.meta.env.VITE_CUSTOMER_CATALOG_IDS, selectedCustomerId, Boolean(catalogOperatorId));
+  useEffect(() => {
+    // Preserve the selected tab only when it exists for the new customer/operator.
+    if (activeCustomerView === "Catalog" && !customerCatalogAvailable) setActiveCustomerView("Overview");
+  }, [activeCustomerView, customerCatalogAvailable]);
   const visibleCustomerNavItems = customerNavItems.filter(
     (item) => (item.label !== "Artwork Catalog" || artworkCatalogInternalPilotAvailable) &&
+      (item.label !== "Catalog" || customerCatalogAvailable) &&
       (item.label !== "Intake Exceptions" || intakeVisibilityAvailable)
   );
   const artworkCatalogFocusedShell = shouldUseArtworkCatalogFocusedShell({
@@ -8311,11 +8278,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, [activeCustomerView, manualImportMethodId]);
 
   useEffect(() => {
-    if (dirtyImportMethodIds.length === 0) {
-      return;
-    }
-
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      const proofNeedsProtection = [...proofSettingsDrafts.current.values()].some(draft => proofSettingsNavigationState(draft.customerId, draft.getSnapshot()) !== "clear");
+      if (!dirtyImportMethodIds.length && !proofNeedsProtection) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -8949,6 +8914,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function requestGuardedNavigation(action: () => void) {
+    const catalogState = catalogLeaveDisposition(catalogShellGuard.current.snapshot(selectedCustomerId, catalogOperatorId));
+    if (activeGlobalView === "Customers" && activeCustomerView === "Catalog" && catalogState !== "clear") {
+      pendingNavigationRef.current = action;
+      refreshCatalogGuard(value => value + 1);
+      setLeavePrompt({ scope: "catalog", title: "Leave customer catalog?", body: "Your unsaved item changes and import previews will be discarded. Saved catalog records will not change." });
+      return;
+    }
+    const proofGuard = proofSettingsDrafts.current.get(selectedCustomerId)?.getSnapshot();
+    const proofNavigation = proofSettingsNavigationState(selectedCustomerId, proofGuard);
+    if (proofNavigation === "pending" || (activeGlobalView === "Customers" && activeCustomerView === "Settings" && proofNavigation === "confirm")) {
+      pendingNavigationRef.current = action;
+      setLeavePrompt({
+        scope: "proof-settings",
+        title: "Leave Proof settings?",
+        body: "Your unsaved entries will be discarded. Saved settings will not change."
+      });
+      return;
+    }
     if (methodSaveInFlight.current) {
       setWorkspaceMessage("A method save is still in progress. Please wait before leaving this workspace.");
       return;
@@ -8984,7 +8967,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function savePromptChangesAndContinue() {
-    if (!leavePrompt) {
+    if (!leavePrompt || leavePrompt.scope === "proof-settings" || leavePrompt.scope === "catalog") {
       return;
     }
 
@@ -9013,6 +8996,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     const action = pendingNavigationRef.current;
     const scope = leavePrompt.scope;
     const targetId = selectedTarget?.target_id ?? null;
+    if (scope === "proof-settings" && !proofSettingsDrafts.current.get(selectedCustomerId)?.discard()) return;
+    if (scope === "catalog") {
+      const disposition = catalogLeaveDisposition(catalogShellGuard.current.snapshot(selectedCustomerId, catalogOperatorId));
+      if (disposition === "pending" || disposition === "recovery-editing") return;
+      if (disposition === "dirty" && !catalogShellGuard.current.discard(selectedCustomerId, catalogOperatorId)) return;
+      // A clean unconfirmed request stays in its scoped recovery journal. Never discard or replay it here.
+    }
     setLeavePrompt(null);
     pendingNavigationRef.current = null;
 
@@ -11162,6 +11152,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     targetsPending: targets.length === 0 && targetsAndJobsState === "loading",
     registryPending: !canonicalRegistry && canonicalRegistryState === "loading"
   });
+  // Only deliberate UI sign-out is guarded. Forced expiry/security callbacks remain untouched.
+  const shellSession = authSession ? {
+    ...authSession,
+    signOut: async () => requestGuardedNavigation(() => {
+      void authSession.signOut().catch(error => setWorkspaceMessage(error instanceof Error ? error.message : "Sign out failed. Please try again."));
+    })
+  } : null;
 
   if (startup.error || startup.pending) {
     const loading = (
@@ -11192,11 +11189,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         }}
       />
     );
-    return operationsShell ? <PathfinderShell enabled active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={authSession}><section id="pathfinder-content" tabIndex={-1} className="workspace">{activeGlobalView === "Customers" && selectedCustomerId ? <CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory}/> : null}{loading}</section></PathfinderShell> : loading;
+    return operationsShell ? <PathfinderShell enabled active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={shellSession}><section id="pathfinder-content" tabIndex={-1} className="workspace">{activeGlobalView === "Customers" && selectedCustomerId ? <CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory}/> : null}{loading}</section></PathfinderShell> : loading;
   }
 
   return (
-    <PathfinderShell enabled={operationsShell} active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={authSession}>
+    <PathfinderShell enabled={operationsShell} active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={shellSession}>
       {!operationsShell ? <aside className="sidebar">
         <div className="brand-block">
           <img className="vornan-wordmark" src="/brand/vornan-wordmark.png" alt="Vornan" />
@@ -11320,7 +11317,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <strong>{authSession.displayName || "Signed in"}</strong>
               <span>{authSession.email || authSession.domain || "Google account"}</span>
             </div>
-            <button className="sidebar-user-signout" onClick={() => void authSession.signOut()} type="button" title="Sign out">
+            <button className="sidebar-user-signout" onClick={() => void shellSession?.signOut()} type="button" title="Sign out">
               <LogOut size={16} />
             </button>
           </div>
@@ -11714,6 +11711,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
                 </section>
               </>
+            ) : null}
+
+            {activeCustomerView === "Catalog" && customerCatalogAvailable ? (
+              <Suspense fallback={<p role="status">Loading customer catalog…</p>}>
+                <AuthenticatedCatalogWorkspace key={`${selectedCustomerId}:${catalogOperatorId}`} apiBaseUrl={apiBaseUrl} customerId={selectedCustomerId} onNavigationController={registerCatalogController} onNavigationState={updateCatalogNavigation} />
+              </Suspense>
             ) : null}
 
             {activeCustomerView === "Artwork Catalog" && artworkCatalogInternalPilotAvailable ? (
@@ -16994,16 +16997,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                   ) : null}
                 </div>
-                {workspace ? <div className="panel customer-panel proof-capability-panel">
+                {workspace && workspace.customer.lift_customer_id === selectedCustomerId ? <div className="panel customer-panel proof-capability-panel">
                   <PanelHeader icon={ShieldCheck} title="Vornan Proof" detail="Customer experience" />
                   <ProofCustomerCapabilitySetup
+                    key={selectedCustomerId}
+                    draft={customerProofDraft()!}
                     policy={workspace.proof_capability_policy}
                     audit={workspace.proof_capability_audit}
                     busy={workspaceState === "saving"}
-                    onSave={saveCustomerProofCapability}
-                    onVerifyIdentity={verifyCustomerProofIdentity}
-                    onUpsertOverride={saveCustomerProofOrderOverride}
-                    onRemoveOverride={removeCustomerProofOrderOverride}
+                    onExecute={requestCustomerProofSettings}
+                    onRead={() => requestCustomerProofSettings()}
+                    onDraftStateChange={setProofSettingsGuard}
                   />
                 </div> : null}
                 <div className="panel customer-panel status-access-panel">
@@ -21051,23 +21055,28 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             >
               <div className="modal-section-header">
                 <div>
-                  <h2 id="leave-prompt-title">{leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "Check the save before leaving?" : "Save your changes before leaving?"}</h2>
-                  <p id="leave-prompt-description" className="vn-form-copy">{leavePrompt.scope === "target" && selectedTargetHasSharedUnsavedChanges ? leavePrompt.body : leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "The save may have completed. Check the saved method, or discard this local draft and reload the saved version." : "Your changes haven’t been saved."}</p>
+                  {leavePrompt.scope === "catalog" ? <>
+                    <h2 id="leave-prompt-title">{catalogNavigation === "pending" ? "Please wait for the catalog request" : catalogNavigation === "recovery-editing" ? "Keep your recovery details" : leavePrompt.title}</h2>
+                    <p id="leave-prompt-description" className="vn-form-copy">{catalogNavigation === "pending" ? "A catalog request is still in progress. Please wait before leaving." : catalogNavigation === "recovery-editing" ? "A save is unconfirmed and this item or preview is still open. Return to the catalog to close it safely or check the save status. Your recovery record will be kept." : catalogNavigation === "clear" ? "There are no unsaved catalog entries. Any unconfirmed save remains available for recovery when you return." : leavePrompt.body}</p>
+                  </> : <>
+                  <h2 id="leave-prompt-title">{leavePrompt.scope === "proof-settings" ? proofSettingsGuard?.pending ? "Please wait for Proof settings" : leavePrompt.title : leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "Check the save before leaving?" : "Save your changes before leaving?"}</h2>
+                  <p id="leave-prompt-description" className="vn-form-copy">{leavePrompt.scope === "proof-settings" ? proofSettingsGuard?.pending ? "A settings request is still in progress. Please wait before leaving." : proofSettingsGuard?.unconfirmed ? "The last request may have completed. Discarding only clears your local entries—it does not undo a saved change. You can check saved settings when you return." : proofSettingsGuard?.dirty ? leavePrompt.body : "The request has finished. There are no unsaved Proof entries." : leavePrompt.scope === "target" && selectedTargetHasSharedUnsavedChanges ? leavePrompt.body : leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "The save may have completed. Check the saved method, or discard this local draft and reload the saved version." : "Your changes haven’t been saved."}</p>
+                  </>}
                 </div>
-                <button className="modal-close-button" onClick={cancelLeavePrompt} aria-label="Keep editing">
+                <button className="modal-close-button" onClick={cancelLeavePrompt} aria-label={leavePrompt.scope === "catalog" ? "Return to catalog" : leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending ? "Stay here" : "Keep editing"}>
                   <X size={16} />
                 </button>
               </div>
               <div className="modal-action-row">
                 <button className="secondary-button" onClick={cancelLeavePrompt}>
-                  Keep editing
+                  {leavePrompt.scope === "catalog" ? "Return to catalog" : leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending ? "Stay here" : "Keep editing"}
                 </button>
-                <button className="secondary-button" onClick={() => void discardPromptChangesAndContinue()}>
-                  Discard changes
+                <button className="secondary-button" disabled={leavePrompt.scope === "catalog" ? catalogNavigation === "pending" || catalogNavigation === "recovery-editing" : leavePrompt.scope === "proof-settings" && proofSettingsGuard?.pending} onClick={() => void discardPromptChangesAndContinue()}>
+                  {leavePrompt.scope === "catalog" && catalogNavigation === "clear" ? "Continue" : leavePrompt.scope === "proof-settings" && proofSettingsGuard?.unconfirmed ? "Discard local entries" : leavePrompt.scope === "proof-settings" && !proofSettingsGuard?.pending && !proofSettingsGuard?.dirty ? "Continue" : "Discard changes"}
                 </button>
-                <button className="primary-button" onClick={() => void savePromptChangesAndContinue()} disabled={workspaceState === "saving"}>
+                {leavePrompt.scope !== "proof-settings" && leavePrompt.scope !== "catalog" ? <button className="primary-button" onClick={() => void savePromptChangesAndContinue()} disabled={workspaceState === "saving"}>
                   {leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "Check saved method" : "Save changes"}
-                </button>
+                </button> : null}
               </div>
             </section>
           </div>
