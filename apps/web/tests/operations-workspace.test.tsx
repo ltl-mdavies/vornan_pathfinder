@@ -95,16 +95,17 @@ test("Pathfinder setup is sourced separately and lookup failures never imply mis
   assert.match(app, /api\/operations\/customer-workspaces/);
   assert.match(app, /workspaceIds=\{operationsWorkspaceIds\}/);
   assert.match(directory, /workspaceIds === null \? "unknown"/);
-  assert.match(directory, /view === "lift" \? <span className="ops-directory-membership"/);
-  assert.match(directory, /state === "ready" \? "In Pathfinder" : state === "missing" \? "Not set up"/);
+  assert.match(directory, /state === "ready" \? <span className="ops-customer-active"/);
+  assert.match(directory, /state === "missing" \? "Not set up" : setupError \? "Setup unknown"/);
   assert.doesNotMatch(directory, /customer_status[^\n]*(?:===|==) "Active"/);
 });
 
-test("customer rows are single keyboard-accessible navigation targets, not setup actions", async () => {
+test("customer name and open chevron remain keyboard-accessible navigation, not setup actions", async () => {
   const source = await readFile(new URL("../src/OperationsCustomers.tsx", import.meta.url), "utf8");
   const directory = source.slice(source.indexOf("export function OperationsCustomers"));
-  assert.match(directory, /<button className="ops-directory-row" type="button" onClick=\{\(\) => onSelect\(customer.lift_customer_id\)\}/);
-  assert.doesNotMatch(directory, /<th>|Open customer|Set up workspace →|Open \$\{currentTab\}/);
+  assert.match(directory, /className="ops-customer-name" onClick=\{\(\) => onSelect\(customer.lift_customer_id\)\}/);
+  assert.match(directory, /aria-label=\{`Open \$\{customer.customer_name\}`\}/);
+  assert.doesNotMatch(directory, /Set up workspace →|Open \$\{currentTab\}/);
   assert.match(directory, /rows.length > size \? <OperationsPagination/);
   assert.match(directory, /aria-label="Customer directory view"/);
   assert.match(directory, /value=\{view\}/);
@@ -124,6 +125,6 @@ test("customer directory defaults to Pathfinder customers with only an All Lift 
   assert.match(directory, /useState<"pathfinder" \| "lift">\("pathfinder"\)/);
   assert.match(directory, /view === "lift" \|\| configured.has\(c.lift_customer_id\)/);
   assert.match(directory, /<option value="pathfinder">Pathfinder Customers<\/option>/);
-  assert.match(directory, /<option value="lift">All Customers<\/option>/);
+  assert.match(directory, /<option value="lift">All Lift Customers<\/option>/);
   assert.doesNotMatch(directory, /customer_status|All setup states/);
 });

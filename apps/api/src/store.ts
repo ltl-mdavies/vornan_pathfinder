@@ -1,4 +1,5 @@
 import type {JsonArtworkBinding} from './json-intake/artwork-delivery.js';
+import { customerOrderAccumulator } from './operations/customer-order-summary.js';
 import type {JsonReceiptJobBinding} from './json-intake/submission-job.js';
 import { createSeedOutputTemplate } from './lift-output-templates.js';
 import type { PrepaidSubmitBinding } from './json-intake/prepaid-submit.js';
@@ -17,6 +18,7 @@ import {
   PutItemCommand,
   QueryCommand,
   ScanCommand,
+  paginateScan,
   TransactWriteItemsCommand,
   type AttributeValue,
   type TransactWriteItem,
@@ -4550,6 +4552,30 @@ export async function listWorkspaceCustomerIds(): Promise<string[]> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
+}
+
+/** Focused, bounded read of every persisted job page. Never seeds storage or reads secrets. */
+export async function listCustomerOrderSummaries(customerIds: readonly string[]) {
+  const summary = customerOrderAccumulator(customerIds);
+  if (!customerIds.length) return summary.finish();
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const table = resolveWorkspaceTables(process.env, ["jobs"]).jobs;
+    const abortSignal = AbortSignal.timeout(12_000);
+    let pages = 0;
+    for await (const page of paginateScan({ client: getDynamoClient(), pageSize: 100 }, {
+      TableName: table, ProjectionExpression: "#data", ExpressionAttributeNames: { "#data": "data" }, ConsistentRead: true
+    }, { abortSignal })) {
+      if (++pages > 1000) throw new Error("Customer order summary exceeded read budget");
+      for (const item of page.Items ?? []) summary.add(parseDynamoData<unknown>(item));
+    }
+  } else {
+    assertLocalStorageDriver();
+    // Missing/corrupt storage is unavailable, not evidence that customers have no orders.
+    const store = JSON.parse(await readFile(storePath, "utf8")) as PathfinderStore;
+    if (!Array.isArray(store.jobs)) throw new Error("Invalid stored jobs");
+    for (const job of store.jobs) summary.add(job);
+  }
+  return summary.finish();
 }
 
 /** Minimal saved-customer eligibility read for operations; no whole-store hydration or seeding. */
