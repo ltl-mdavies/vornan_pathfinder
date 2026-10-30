@@ -1,19 +1,23 @@
 {
   "status": "local candidate; deployment held",
   "baseline": "546e0dd82c6ddaf430c7b9d2b663c848442ba353",
-  "candidate": "11a904b8e5d921c0842aef5e8a71d8e35f1beefd",
+  "candidate": "f7f8dd50beae264bc4e900b2e9e43535d22a0fa5",
   "components": {
-    "customerOverview": "63d2d26e168520479f4532a116405eb9afed1bb8",
+    "customerOverview": "f7f8dd50beae264bc4e900b2e9e43535d22a0fa5",
     "proofOriginal": "f63645666945000c03117325d7080a1fb62974e7"
   },
   "scope": ["Admin Customer Overview readability", "Public Proof Actual-size PDF centering"],
   "excluded": ["API deployment", "Order Status deployment", "Intake behavior", "Proof decisions/auth/access settings", "Viewer background/queue redesign", "Catalog activation or imports"],
   "ux": {
-    "independentAcceptance": "passed for both components",
+    "independentAcceptance": "Proof acceptance unchanged. Revised two-view Overview visually accepted by UX from all four captures; supersedes always-visible inset acceptance. Interaction/accessibility acceptance relies on Development focused QA, not an independent UX browser run.",
+    "overviewAcceptanceThread": "01a16a35-2fc7-7a62-8945-f6c7f25a1638",
+    "overviewCaptures": ["output/playwright/tabs-details-1366.png", "output/playwright/tabs-account-1366.png", "output/playwright/tabs-details-1920.png", "output/playwright/tabs-account-1920.png"],
+    "overviewFocusedChecks": "Equal stable card heights across views: 383.5px at 1366x768, 354px at 1920x1080. No horizontal overflow. Long fields wrap. Tab/Enter/Space and visible focus pass. Hidden view excluded from accessibility snapshot. Missing values distinct from No and $0.00.",
     "viewports": [[1366,768],[1920,1080]],
     "evidence": "/Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/design/reviews/2026-10-30-overview-actual-size/index.html"
   },
   "localChecks": {
+    "overviewPivotRegression": "301/301 Admin tests and Admin typecheck passed after final pivot; diff check passed. Broader checks below predate this scoped UI pivot.",
     "merge": "clean",
     "diffCheck": "passed",
     "workspaceTypecheck": "passed",
