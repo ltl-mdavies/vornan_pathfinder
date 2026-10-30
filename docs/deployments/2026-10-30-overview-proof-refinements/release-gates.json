@@ -1,0 +1,46 @@
+{
+  "status": "local candidate; deployment held",
+  "baseline": "546e0dd82c6ddaf430c7b9d2b663c848442ba353",
+  "candidate": "f7f8dd50beae264bc4e900b2e9e43535d22a0fa5",
+  "components": {
+    "customerOverview": "f7f8dd50beae264bc4e900b2e9e43535d22a0fa5",
+    "proofOriginal": "f63645666945000c03117325d7080a1fb62974e7"
+  },
+  "scope": ["Admin Customer Overview readability", "Public Proof Actual-size PDF centering"],
+  "excluded": ["API deployment", "Order Status deployment", "Intake behavior", "Proof decisions/auth/access settings", "Viewer background/queue redesign", "Catalog activation or imports"],
+  "ux": {
+    "independentAcceptance": "Proof acceptance unchanged. Revised two-view Overview visually accepted by UX from all four captures; supersedes always-visible inset acceptance. Interaction/accessibility acceptance relies on Development focused QA, not an independent UX browser run.",
+    "overviewAcceptanceThread": "01a16a35-2fc7-7a62-8945-f6c7f25a1638",
+    "overviewCaptures": ["output/playwright/tabs-details-1366.png", "output/playwright/tabs-account-1366.png", "output/playwright/tabs-details-1920.png", "output/playwright/tabs-account-1920.png"],
+    "overviewFocusedChecks": "Equal stable card heights across views: 383.5px at 1366x768, 354px at 1920x1080. No horizontal overflow. Long fields wrap. Tab/Enter/Space and visible focus pass. Hidden view excluded from accessibility snapshot. Missing values distinct from No and $0.00.",
+    "viewports": [[1366,768],[1920,1080]],
+    "evidence": "/Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/design/reviews/2026-10-30-overview-actual-size/index.html"
+  },
+  "localChecks": {
+    "overviewPivotRegression": "301/301 Admin tests and Admin typecheck passed after final pivot; diff check passed. Broader checks below predate this scoped UI pivot.",
+    "merge": "clean",
+    "diffCheck": "passed",
+    "workspaceTypecheck": "passed",
+    "adminBuild": "passed",
+    "proofBuild": "passed",
+    "firstCompleteRegressionRun": "1583/1584 passed; one API expected403 got405 rejection-code discrepancy",
+    "isolatedFailureComparison": "Entire proof-admin-grant-sync.test.ts passes on candidate and unchanged baseline",
+    "repeatRegressionRun": "1583/1584 passed; different API grant test failed with ECONNRESET",
+    "serialApiRun": "899/899 passed with --test-concurrency=1; no source changes",
+    "coverageSummary": "All1584 workspace cases passed across other workspace suites and the serial API run; do not represent parallel runs as passing",
+    "deploymentContracts": "187/187 passed"
+  },
+  "limitations": ["Synthetic UI verification is not authenticated live verification", "Fixture HMR emitted createRoot warning during local development", "Local builds are validation artifacts, not approved production-configured artifacts", "Both parallel API failures retained in output/combined-workspace-tests-final.log and output/combined-workspace-tests-repeat.log; root cause not established. Serial API evidence: /private/tmp/candidate-api-serial-tests.log"],
+  "productionGates": {
+    "humanDeploymentApproval": "not received",
+    "currentTargetAndConfigurationVerification": "pending; do not use deployment-script defaults",
+    "preserveLiveFrontendFlags": "required; catalog remains disabled",
+    "productionArtifactInspectionAndHash": "pending",
+    "uploadDryRun": "pending",
+    "durableRollbackArchive": "pending",
+    "concurrencyCheck": "pending",
+    "ci": "pending; branch not pushed",
+    "postDeployment": ["Authenticated Customer Overview populated/missing data and target navigation", "Proof Actual/Fit/rotation/overflow controls with no proof decisions", "Pathfinder intake and Status read-only smoke checks"]
+  },
+  "deploymentPolicy": "Only reviewed Admin and Proof static prefixes. Retain old hashed assets, upload assets before HTML. No API/config/infrastructure/data mutations. Resolve required gates before deployment."
+}

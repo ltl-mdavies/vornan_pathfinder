@@ -2625,9 +2625,9 @@ function downloadJsonFile(filename: string, value: unknown) {
   URL.revokeObjectURL(url);
 }
 
-function displayCurrency(value?: number | null) {
+function displayCurrency(value?: number | null, missingLabel = "Unassigned") {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "Unassigned";
+    return missingLabel;
   }
 
   return new Intl.NumberFormat(undefined, {
@@ -2709,11 +2709,11 @@ function ArrowGlyph() {
   );
 }
 
-function DetailItem({ label, value }: { label: string; value?: string | null }) {
+function DetailItem({ label, value, missingLabel = "Unassigned" }: { label: string; value?: string | null; missingLabel?: string }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value || "Unassigned"}</dd>
+      <dd>{value || missingLabel}</dd>
     </div>
   );
 }
@@ -4614,6 +4614,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [operationsProofOrder, setOperationsProofOrder] = useState<{ order: string; customer: string } | null>(null);
   const [operationsRefreshError, setOperationsRefreshError] = useState<string | null>(null);
   const [activeCustomerView, setActiveCustomerView] = useState<CustomerView>("Overview");
+  const [customerDetailsView, setCustomerDetailsView] = useState<"details" | "account">("details");
   const [sourceGrid, setSourceGrid] = useState<SourceGrid>({ columns: [], rows: [] });
   const [sourceSheets, setSourceSheets] = useState<ParsedWorkbookSheet[]>([]);
   const [parsedOrderRows, setParsedOrderRows] = useState<ParsedSourceRow[]>([]);
@@ -11496,7 +11497,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <section className="customer-overview">
                   <div className="panel customer-panel">
                     <PanelHeader icon={Users} title="Customer Details" detail={customerDirectory.source === "lift-endpoint" ? "Lift directory" : "Saved Pathfinder record"} />
-                    <details className="pf-customer-record-details"><summary>Customer record details</summary>
+                    <div className="pf-customer-detail-switch" role="group" aria-label="Customer information view">
+                      <button type="button" aria-pressed={customerDetailsView === "details"} onClick={() => setCustomerDetailsView("details")}>Customer details</button>
+                      <button type="button" aria-pressed={customerDetailsView === "account"} onClick={() => setCustomerDetailsView("account")}>Account status</button>
+                    </div>
+                    <div className="pf-customer-detail-views">
+                    <section className="pf-customer-detail-view" hidden={customerDetailsView !== "details"} aria-label="Customer details">
                     <dl className="customer-detail-grid">
                       <DetailItem label="Customer Name" value={selectedCustomer.customer_name} />
                       <DetailItem label="Status" value={selectedCustomer.customer_status} />
@@ -11506,28 +11512,25 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <DetailItem label="Default Invoice Email" value={selectedCustomer.default_invoice_email_address} />
                       <DetailItem label="CRM ID" value={selectedCustomer.crm_id} />
                     </dl>
-                    </details>
-                    <details className="account-status-details">
-                      <summary>
-                        <span>Account Status</span>
-                        <span>{selectedCustomer.credit_hold ?? selectedCustomer.terms_status ?? "No account flags"}</span>
-                      </summary>
-                      <dl className="account-status-grid">
-                        <DetailItem label="Terms" value={selectedCustomer.terms} />
-                        <DetailItem label="Terms Status" value={selectedCustomer.terms_status} />
-                        <DetailItem label="Credit Hold" value={selectedCustomer.credit_hold} />
-                        <DetailItem label="Credit Limit" value={displayCurrency(selectedCustomer.credit_limit)} />
-                        <DetailItem label="Available Credit" value={displayCurrency(selectedCustomer.available_credit)} />
-                        <DetailItem label="Unpaid Total" value={displayCurrency(selectedCustomer.unpaid_total)} />
+                    </section>
+                    <section className="pf-customer-detail-view" hidden={customerDetailsView !== "account"} aria-label="Account status">
+                      <dl className="customer-detail-grid">
+                        <DetailItem label="Terms" value={selectedCustomer.terms} missingLabel="Not available" />
+                        <DetailItem label="Terms Status" value={selectedCustomer.terms_status} missingLabel="Not available" />
+                        <DetailItem label="Credit Hold" value={selectedCustomer.credit_hold} missingLabel="Not available" />
+                        <DetailItem label="Credit Limit" value={displayCurrency(selectedCustomer.credit_limit, "Not available")} />
+                        <DetailItem label="Available Credit" value={displayCurrency(selectedCustomer.available_credit, "Not available")} />
+                        <DetailItem label="Unpaid Total" value={displayCurrency(selectedCustomer.unpaid_total, "Not available")} />
                       </dl>
-                    </details>
+                    </section>
+                    </div>
                     {customerDirectory.warning ? <p className="import-warning">{customerDirectory.warning}</p> : null}
                     {workspaceMessage ? <p className={workspaceState === "error" ? "import-error" : "import-warning"}>{workspaceMessage}</p> : null}
                   </div>
 
                   <div className="panel target-summary-panel">
                     <div className="table-panel-header">
-                      <PanelHeader icon={Database} title="Primary Target" detail={primaryOutputRoute.name} />
+                      <PanelHeader icon={Database} title="Primary Target" />
                       <button className="table-header-link" onClick={() => runHeaderAction("target")}>
                         View target setup
                         <ArrowGlyph />
@@ -11535,7 +11538,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                     <div className="primary-target-body">
                       <div className="target-identity">
-                        <div className="target-logo">{targetLogoText(primaryRouteTarget)}</div>
                         <div>
                           <strong>{primaryRouteTarget?.name ?? primaryOutputRoute.target_system}</strong>
                           <span>{primaryRouteTemplate?.name ?? primaryOutputRoute.output_template}</span>
@@ -11543,6 +11545,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <span className="target-env">{primaryRouteEnvironment?.name ?? "No environment"}</span>
                       </div>
                       <dl className="target-summary">
+                        <DetailItem label="Route" value={primaryOutputRoute.name} />
                         <DetailItem label="Company ID" value={primaryRouteCompanyId} />
                         <DetailItem label="Destination" value={`${primaryOutputRoute.destination_account_name}${primaryOutputRoute.destination_account_id ? ` / ${primaryOutputRoute.destination_account_id}` : ""}`} />
                         <DetailItem

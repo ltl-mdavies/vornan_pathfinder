@@ -12,12 +12,25 @@ const manual = section('{activeCustomerView === "Manual Import" ? (', '{operatio
 test("Overview leads with operational metrics and jobs, retaining account/route controls", () => {
   assert.ok(overview.indexOf('aria-label="Customer KPIs"') < overview.indexOf('className="customer-overview"'));
   assert.ok(overview.indexOf('className="panel jobs-panel"') < overview.indexOf('className="panel method-panel"'));
-  for (const capability of ['Customer record details', 'Account Status', 'Credit Hold', 'View target setup', 'customerDirectory.warning', 'workspaceMessage', 'createDraftImportMethod', 'openJobDetail(job)']) assert.ok(overview.includes(capability), capability);
+  for (const capability of ['Customer Details', 'Account status', 'Credit Hold', 'View target setup', 'customerDirectory.warning', 'workspaceMessage', 'createDraftImportMethod', 'openJobDetail(job)']) assert.ok(overview.includes(capability), capability);
   assert.match(source, /rankRecentOperationalJobs\(activeCustomerJobs\)/);
   assert.match(source, /activeCustomerJobs = customerJobsUnfiltered.filter\(\(job\) => !job.archived_at\)/);
   assert.match(overview, /customerJobReadUnavailable \? "—" : value/);
   assert.match(overview, /Counts are unavailable until job activity loads/);
   assert.match(overview, /Counts use loaded, non-archived jobs/);
+});
+
+test("Overview switches customer and account views without invented account assurances", () => {
+  const details = overview.slice(overview.indexOf('className="customer-overview"'), overview.indexOf('className="overview-grid overview-grid-two"'));
+  assert.doesNotMatch(details, /<details|<summary|No account flags|className="target-logo"/);
+  assert.match(details, /aria-label="Customer information view"/);
+  assert.match(details, /hidden=\{customerDetailsView !== "account"\}/);
+  assert.match(details, /hidden=\{customerDetailsView !== "details"\}/);
+  assert.match(details, /label="Route" value=\{primaryOutputRoute.name\}/);
+  for (const field of ['customer_name', 'customer_status', 'lift_customer_id', 'sales_rep', 'customer_number', 'default_invoice_email_address', 'crm_id', 'terms', 'terms_status', 'credit_hold', 'credit_limit', 'available_credit', 'unpaid_total']) {
+    assert.ok(details.includes(`selectedCustomer.${field}`), field);
+  }
+  assert.match(css, /\.pf-shell \[data-customer-view="Overview"\] \.customer-overview \{grid-template-columns:minmax\(0,2fr\) minmax\(280px,1fr\)/);
 });
 
 test("Mapping retains scoped diagnostics, individual assignment and guarded bulk review", () => {
