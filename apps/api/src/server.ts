@@ -1,3 +1,4 @@
+import {configuredCatalogRecordRouter} from './catalog-records/configured-router.js';
 import { validateEcommSubmitIdentity } from './json-intake/ecomm-submit-validation.js';
 import { preflightSubmitDocuments } from "./json-intake/prepaid-submit.js";
 import { getIntakeVisibilityConfig } from "./intake-visibility-config.js";
@@ -4928,6 +4929,7 @@ app.get("/oauth/wrike/callback", async (req, res) => {
 });
 
 app.use("/api", requirePathfinderAuth);
+app.use("/api", configuredCatalogRecordRouter(process.env));
 app.use("/api", createIntakeDeliveryReviewRouter({
   enabled: process.env.PATHFINDER_ENABLE_INTAKE_DELIVERY_REVIEW === "true",
   customer_ids: (process.env.PATHFINDER_INTAKE_DELIVERY_REVIEW_CUSTOMER_IDS ?? "").split(",").map(value => value.trim()).filter(Boolean),
