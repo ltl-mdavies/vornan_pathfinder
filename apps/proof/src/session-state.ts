@@ -6,6 +6,26 @@ export type ProofEntryState =
 
 const RAW_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 
+/** A new access fragment is an explicit navigation, not a background refresh.
+ * Start a fresh document so old order drafts, pending loads and the cached
+ * bootstrap cannot cross into the next grant. Bootstrap still validates and
+ * removes the token; this listener never reads or stores it elsewhere.
+ */
+export function watchProofAccessNavigation(target: {
+  location: Pick<Location, "hash" | "reload">;
+  addEventListener(type: "hashchange", listener: () => void): void;
+  removeEventListener(type: "hashchange", listener: () => void): void;
+}) {
+  let navigating = false;
+  const onHashChange = () => {
+    if (navigating || !target.location.hash.startsWith("#/access/")) return;
+    navigating = true;
+    target.location.reload();
+  };
+  target.addEventListener("hashchange", onHashChange);
+  return () => target.removeEventListener("hashchange", onHashChange);
+}
+
 export function proofEntryState(hash: string): ProofEntryState {
   const accessPrefix = "#/access/";
   if (hash.startsWith(accessPrefix)) {

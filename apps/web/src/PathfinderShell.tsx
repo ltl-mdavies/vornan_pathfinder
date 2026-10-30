@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { LogOut, type LucideIcon } from "lucide-react";
 import type { PathfinderAuthSession } from "./auth";
 import "./pathfinder-shell.css";
+import "../../../packages/ui/src/vornan-foundation.css";
 
 export interface PathfinderNavigationItem { label: string; icon: LucideIcon }
 

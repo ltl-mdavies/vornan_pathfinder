@@ -22,7 +22,7 @@ export function AuthScreen({ state, error, onSignIn, onSignOut }: AuthScreenProp
     : unconfigured
       ? "Sign-in is not configured for this environment. Contact your Pathfinder administrator."
       : state === "expired"
-        ? "Your session expired. Sign in again, then retry your last action."
+        ? "Your session has expired. Sign in to continue."
         : state === "error"
           ? error || "Google sign-in could not be completed. Please try again."
           : null;
@@ -43,7 +43,7 @@ export function AuthScreen({ state, error, onSignIn, onSignOut }: AuthScreenProp
             <p className="pf-auth-eyebrow">Pathfinder</p>
             <h1 id="pf-auth-title">{title}</h1>
             {!restricted && !unconfigured && <p className="pf-auth-subtitle">Continue to your workspace.</p>}
-            {message && <p className="pf-auth-message" role="alert">{message}</p>}
+            {message && <p className={`pf-auth-message${state === "expired" ? " pf-auth-message-expired" : ""}`} role="alert">{message}</p>}
             {!restricted && !unconfigured && (
               <button className="pf-auth-button" type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn}>
                 {signingIn

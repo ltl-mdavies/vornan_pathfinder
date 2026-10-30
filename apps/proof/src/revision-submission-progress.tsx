@@ -27,7 +27,7 @@ export function useRevisionSubmissions(orderNumber: string | null, participantId
       if (currentKey.current !== context) return;
       const receipts = new Map(submissions.map((receipt) => [receipt.submission_id, receipt]));
       for (const receipt of latest.current.key === context ? latest.current.receipts : []) {
-        if (!receipts.has(receipt.submission_id) || receipt.state === "accepted") receipts.set(receipt.submission_id, receipt);
+        if (!receipts.has(receipt.submission_id) || receipt.state === "accepted" || receipt.state === "not_sent") receipts.set(receipt.submission_id, receipt);
       }
       const next = { key: context, intents: readRevisionIntents(window.sessionStorage, context), receipts: [...receipts.values()], ready: true };
       latest.current = next; setState(next); setMessage(null); setLastChecked(new Date().toISOString());

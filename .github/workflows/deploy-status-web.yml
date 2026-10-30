@@ -52,8 +52,8 @@ jobs:
 
       - name: Sync immutable assets
         run: |
+          # Retain prior hashed assets for already-open tabs and rollback.
           aws s3 sync apps/status/dist "s3://${{ vars.PATHFINDER_STATUS_BUCKET || 'vornan-pathfinder-status' }}" \
-            --delete \
             --exclude "index.html" \
             --cache-control "public,max-age=31536000,immutable"
 

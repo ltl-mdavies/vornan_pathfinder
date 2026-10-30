@@ -1,0 +1,205 @@
+/* Vornan suite alignment: headers, surfaces, recovery states and supported font weights.
+ * Import after application styles. Workspace geometry and functional states stay local.
+ */
+:root {
+  --vn-forest: #39523b;
+  --vn-stone: #f3f7f1;
+  --vn-neutral: #f5f6f2;
+  --vn-forest-hover: #2c3f2e;
+  --vn-border: #d8dfd3;
+  --vn-control-border: #7c8977;
+  --vn-success-bg: #edf3e8;
+  --vn-warning: #79591f;
+  --vn-warning-bg: #fff6e5;
+  --vn-error: #963f36;
+  --vn-error-bg: #fff0ed;
+  --vn-info: #3f5f78;
+  --vn-info-bg: #eef3f7;
+  --vn-night: #191818;
+  --vn-zinnia: #abc65f;
+  --vn-surface: #ffffff;
+  --vn-muted: #5f6c5b;
+  --vn-font: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --vn-weight-body: 500;
+  --vn-weight-emphasis: 800;
+  --vn-header-height: 56px;
+  --vn-header-inset: 24px;
+  --vn-header-gap: 16px;
+  --vn-logo-width: 108px;
+  font-family: var(--vn-font);
+  font-weight: var(--vn-weight-body);
+  --vornan-black: var(--vn-night);
+  --vornan-forest: var(--vn-forest);
+  --vornan-lime: var(--vn-zinnia);
+  --vornan-stone: var(--vn-stone);
+  --surface-0: var(--vn-neutral);
+  --surface-1: var(--vn-surface);
+  --text-muted: var(--vn-muted);
+  --ink: var(--vn-night);
+  --forest: var(--vn-forest);
+  --lime: var(--vn-zinnia);
+  --zinnia: var(--vn-zinnia);
+  --stone: var(--vn-stone);
+  --paper: var(--vn-surface);
+  --soft: var(--vn-neutral);
+  --muted: var(--vn-muted);
+  --line: var(--vn-border);
+  --border-subtle: var(--vn-border);
+  --warning: var(--vn-warning);
+  --critical: var(--vn-error);
+  --danger: var(--vn-error);
+}
+body { font-family: var(--vn-font); font-weight: var(--vn-weight-body); background: var(--vn-neutral); }
+h1, h2, h3, h4, strong, b { font-weight: var(--vn-weight-emphasis); }
+
+/* Same lockup on desktop; existing compact navigation behavior stays in place. */
+@media (min-width: 821px) {
+  .app-shell.pf-shell { grid-template-rows: var(--vn-header-height) minmax(0, 1fr); }
+  .app-shell:has(> .topbar) { grid-template-rows: var(--vn-header-height) auto auto minmax(0, 1fr); }
+  .pf-masthead, .topbar, .brand-header {
+    height: var(--vn-header-height); min-height: var(--vn-header-height);
+    padding-inline: var(--vn-header-inset); background: var(--vn-forest);
+  }
+  .pf-brand, .brand-row, .brand-product { gap: var(--vn-header-gap); }
+  .pf-brand img, .brand-row img, .brand-product .vornan-wordmark {
+    width: var(--vn-logo-width); height: auto; max-height: none; display: block;
+  }
+  .pf-brand > span, .brand-row > strong, .brand-product > strong {
+    font-family: var(--vn-font); font-size: 16px; line-height: 24px;
+    font-weight: var(--vn-weight-emphasis); letter-spacing: 0;
+  }
+  .pf-brand > span { padding-left: var(--vn-header-gap); border-left-color: rgba(255,255,255,.3); }
+  .brand-row > span, .brand-product > span { height: 24px; }
+  .pf-session button { width: 44px; height: 44px; }
+}
+/* Brand colors remain consistent in existing mobile header layouts too. */
+.pf-masthead, .topbar, .brand-header { background: var(--vn-forest); }
+
+/* Neutral is a workspace surface, not a replacement for the brand Stone token. */
+.app-shell.pf-shell, .pf-shell > .workspace { background: var(--vn-neutral); }
+.pf-shell > .sidebar.pf-rail { background: var(--vn-neutral); }
+.pf-shell .panel, .pf-shell .ops-kpis, .pf-shell .ops-table-wrap { background: var(--vn-surface); }
+
+/* Proof: use the same neutral surroundings and white working surface. */
+.app-shell:has(> .topbar), .queue-panel, .creative-rail,
+.filename, .proof-filename, .proof-filmstrip, .preview-filebar { background: var(--vn-neutral); }
+.workspace:has(> .queue-panel) { background: var(--vn-surface); }
+.segmented { background: #e8efdb; }
+
+/* Status: remove translucent and warm surfaces; retain existing layout/elevation. */
+.status-shell :is(.hero,.status-request,.loading-card,.summary-grid,.progress-panel,
+.order-lines,.privacy-note,.issue-strip,.order-collection,.request-form) { background: var(--vn-surface); }
+.status-shell .hero { background: transparent; }
+.order-rollup, .order-rollup__line { background: var(--vn-surface); }
+/* Public Status cards sit on Neutral; gutters must not inherit the white cards. */
+.status-shell, .status-shell .order-rollup--public { background: var(--vn-neutral); }
+.order-rollup__header { background: var(--vn-neutral); }
+.order-rollup__line-body, .order-rollup__overview, .request-form-panel { background: var(--vn-neutral); }
+
+/* Descriptive text is Medium; names, values needing emphasis and headings remain Extra Bold. */
+.status-shell :is(.hero-meta,.hero-subtitle,.request-note,.status-request p,.request-form input),
+.order-rollup__header p:last-child, .order-rollup__line-title p,
+.order-rollup__milestone span, .order-rollup__header-status small {
+  font-weight: var(--vn-weight-body);
+}
+.status-shell .request-form label { color: var(--vn-muted); }
+
+/* Shared treatments retain component geometry and semantic state ownership. */
+.pf-shell :is(.panel, .ops-table-wrap, .ops-kpis),
+.workspace:has(> .queue-panel), .queue-panel, .proof-filmstrip, .preview-filebar, .review-decision,
+.order-rollup, .order-rollup__line, .order-rollup__line-card, .order-rollup__overview-card,
+.order-rollup__lines-panel, .order-rollup__proof-card, .order-rollup__shipment-card {
+  border-color: var(--vn-border);
+}
+.order-rollup__overview-card, .order-rollup__lines-panel { background: var(--vn-surface); }
+.pf-shell :is(.primary-button, .secondary-button) { border-radius: 6px; }
+.app-shell:has(> .topbar) .button { border-radius: 10px; }
+.app-shell:has(> .topbar) :is(.review-toolbar, .workspace-toolbar) .button { border-radius: 6px; }
+.pf-shell .primary-button, .app-shell:has(> .topbar) .button.primary,
+.status-shell .request-form button[type=submit] { background: var(--vn-forest); color: white; }
+.pf-shell .primary-button:not(:disabled):hover,
+.app-shell:has(> .topbar) .button.primary:not(:disabled):hover,
+.status-shell .request-form button[type=submit]:not(:disabled):hover { background: var(--vn-forest-hover); }
+.pf-shell .secondary-button,
+.app-shell:has(> .topbar) :is(.button.secondary, .button.tertiary),
+.order-rollup__lightbox-actions button {
+  border-color: var(--vn-control-border); color: var(--vn-forest); background: white;
+}
+.pf-shell .secondary-button:not(:disabled):hover,
+.app-shell:has(> .topbar) :is(.button.secondary, .button.tertiary):not(:disabled):hover { background: var(--vn-neutral); }
+.pf-shell :is(input:not([type=checkbox]):not([type=radio]), select, textarea),
+.queue-search, .proof-dialog :is(input:not([type=checkbox]):not([type=radio]), textarea, select),
+.status-shell .request-form :is(input, select, textarea) { border-color: var(--vn-control-border); }
+/* Focus overrides are limited to light work surfaces, never the dark viewer/header. */
+.pf-shell .workspace :is(button, a, input, select, textarea):focus-visible,
+.workspace:has(> .queue-panel) :is(.button, .queue-search input, .line-card):focus-visible,
+.status-shell main :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--vn-forest); outline-offset: 3px;
+}
+.pf-shell :is(.mini-pill-success, .pill-success), .app-shell:has(> .topbar) .status-pill.approved {
+  background: var(--vn-success-bg); color: var(--vn-forest);
+}
+.pf-shell :is(.mini-pill-warning, .pill-warning), .app-shell:has(> .topbar) .status-pill:is(.pending, .waiting) {
+  background: var(--vn-warning-bg); color: var(--vn-warning);
+}
+.pf-shell :is(.mini-pill-danger, .pill-danger), .app-shell:has(> .topbar) .status-pill:is(.error, .missing) {
+  background: var(--vn-error-bg); color: var(--vn-error);
+}
+.pf-shell :is(.mini-pill-neutral, .pill-neutral),
+.app-shell:has(> .topbar) .status-pill:is(.reference, .cancelled),
+.order-rollup .order-rollup__line-card.is-cancelled .order-rollup__status {
+  background: #f3f5f0; color: var(--vn-muted);
+}
+.app-shell:has(> .topbar) .status-pill.revised { background: var(--vn-info-bg); color: var(--vn-info); }
+.pf-shell :is(.mini-pill, .pill), .app-shell:has(> .topbar) .status-pill { border-radius: 6px; }
+.app-shell:has(> .topbar) .button.secondary.feedback-button.unread {
+  background: var(--vn-warning-bg); color: var(--vn-warning); border-color: #e7d1a4; box-shadow: none;
+}
+.app-shell:has(> .topbar) .button.secondary.feedback-button.unread:not(:disabled):hover { background: #f9edcf; }
+.app-shell:has(> .topbar) :is(.order-health-notice, .session-warning) {
+  background: var(--vn-warning-bg); color: var(--vn-warning); border-color: #e7d1a4;
+}
+.app-shell:has(> .topbar) :is(.completion-banner, .action-outcome) {
+  background: var(--vn-success-bg); color: var(--vn-forest); border-color: #c1d1b8;
+}
+.order-rollup .order-rollup__status { background: var(--vn-success-bg); color: var(--vn-forest); border-color: #c1d1b8; }
+/* Last in the action cascade: disabled controls must never resemble active success. */
+.pf-shell :is(.primary-button, .secondary-button):disabled,
+.app-shell:has(> .topbar) .button:disabled,
+.app-shell:has(> .topbar) .button.secondary.feedback-button.unread:disabled {
+  background: #e5eae1; color: #697465; border-color: var(--vn-border); opacity: 1;
+}
+
+/* Access recovery retains main focus/announcements; the heading carries the visible ring. */
+.access-recovery-state .state-icon { background: var(--vn-warning-bg); color: var(--vn-warning); }
+.access-recovery-state:focus { outline: none; }
+.access-recovery-state:focus #proof-terminal-heading {
+  outline: 2px solid var(--vn-forest); outline-offset: 6px; border-radius: 4px;
+}
+/* One composite search boundary; the clear button retains its own keyboard focus. */
+.workspace:has(> .queue-panel) .queue-search input:focus-visible:focus { outline: none; }
+.queue-search:focus-within {
+  border-color: var(--vn-forest); outline: 2px solid var(--vn-forest); outline-offset: 3px; box-shadow: none;
+}
+.status-request h1 { font-size: 32px; line-height: 1.2; letter-spacing: -1px; }
+.status-request form, .status-email-availability, .status-error-card {
+  background: var(--vn-surface); border-color: var(--vn-border);
+}
+.status-shell:not(.intake-shell) > .status-request { background: var(--vn-neutral); }
+.status-request :is(input, textarea) { font-weight: var(--vn-weight-body); border-color: var(--vn-control-border); }
+.status-request .field-hint, .request-form-header strong { font-weight: var(--vn-weight-body); color: var(--vn-muted); }
+.status-request :is(button, a, input, textarea):focus-visible { outline: 2px solid var(--vn-forest); outline-offset: 3px; }
+@media (max-width: 600px) { .status-request h1 { font-size: 28px; } }
+@media (prefers-reduced-motion: reduce) {
+  .status-shell .status-skeleton span { animation: none; }
+}
+/* Field guidance and dirty-form confirmation: preserve each workflow's sizing. */
+.vn-field-label { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.vn-required { font-size: 12px; font-weight: 500; color: var(--vn-muted, #647060); }
+.vn-field-error { display: block; font-size: 13px; line-height: 1.4; font-weight: 500; color: var(--vn-error, #9e3426); }
+.vn-form-copy, .vn-discard-confirmation p { font-weight: 500; line-height: 1.5; }
+.vn-discard-confirmation { padding: 24px; }
+.vn-discard-confirmation h2 { margin: 0; }
+.vn-save-feedback { margin-right: auto; font-size: 13px; font-weight: 500; }
+.identity-actions { flex-wrap: wrap; }
+.proof-dialog .identity-form input[aria-invalid="true"], .pf-shell .setup-control input[aria-invalid="true"], .status-shell input[aria-invalid="true"], .status-shell textarea[aria-invalid="true"] { border-color: var(--vn-error, #9e3426); }

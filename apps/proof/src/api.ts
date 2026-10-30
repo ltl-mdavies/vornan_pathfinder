@@ -261,7 +261,7 @@ export interface ProofRevisionSubmission {
   filename: string;
   line_number?: string | null;
   proof_filename?: string | null;
-  state: "submitted" | "checking" | "accepted";
+  state: "submitted" | "checking" | "accepted" | "not_sent";
   automatic_retry: false;
   lift_outcome_confirmed: false;
 }

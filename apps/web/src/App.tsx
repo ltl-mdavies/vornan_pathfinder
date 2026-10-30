@@ -1,4 +1,5 @@
 import { isIntakeVisibilityAvailable } from "./intake-visibility";
+import { methodSaveMatches } from "./method-save-state";
 import { createSubmissionGuard, submissionDisposition } from "./submission-recovery";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { IntakeExceptions } from "./IntakeExceptions";
@@ -4708,6 +4709,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [manualImportMethodId, setManualImportMethodId] = useState("manual-xlsx");
   const [isImportMethodDetailOpen, setIsImportMethodDetailOpen] = useState(false);
   const [dirtyImportMethodIds, setDirtyImportMethodIds] = useState<string[]>([]);
+  const [methodNameError, setMethodNameError] = useState<string | null>(null);
+  const methodNameInput = useRef<HTMLInputElement>(null);
+  const savedMethodTitles = useRef(new globalThis.Map<string, string>());
+  const [unconfirmedMethodSave, setUnconfirmedMethodSave] = useState<{ customerId: string; method: ImportMethod } | null>(null);
+  const methodSaveInFlight = useRef(false);
+  const methodDraftRef = useRef({ workspace, mappings, activeMethodId, manualImportMethodId, activeCustomerView });
+  methodDraftRef.current = { workspace, mappings, activeMethodId, manualImportMethodId, activeCustomerView };
   const [localDraftImportMethodIds, setLocalDraftImportMethodIds] = useState<string[]>([]);
   const [dirtyTargetIds, setDirtyTargetIds] = useState<string[]>([]);
   const [localDraftTargetIds, setLocalDraftTargetIds] = useState<string[]>([]);
@@ -4976,7 +4984,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       if (requestId !== customerDirectoryRequestRef.current) return;
       setCustomerDirectory((current) => ({
         ...current,
-        warning: "Could not load Lift customers. Your current selection has been kept. Retry refresh."
+        warning: "We couldn’t load the customer directory. Your selection has been kept."
       }));
     } finally {
       if (requestId === customerDirectoryRequestRef.current) setCustomerImportState("idle");
@@ -6543,11 +6551,59 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function saveImportMethod(method: ImportMethod, nextMappings = mappings) {
+    if (methodSaveInFlight.current) return false;
+    const customerId = selectedCustomer.lift_customer_id;
+    const workspaceEpoch = workspaceRequestIdRef.current;
+    const isCurrent = () => customerId === selectedCustomerIdRef.current && workspaceEpoch === workspaceRequestIdRef.current;
+    const currentDraft = () => {
+      const latest = methodDraftRef.current;
+      const draft = latest.workspace?.import_methods.find(item => item.import_method_id === method.import_method_id);
+      const editingId = latest.activeCustomerView === "Manual Import" ? latest.manualImportMethodId : latest.activeMethodId;
+      return draft ? { ...draft, name: draft.name.trim(), mappings: editingId === method.import_method_id ? latest.mappings : draft.mappings } : null;
+    };
+    const pending = unconfirmedMethodSave;
+    if (pending?.customerId === selectedCustomer.lift_customer_id && pending.method.import_method_id === method.import_method_id) {
+      setWorkspaceState("saving");
+      methodSaveInFlight.current = true;
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/customers/${pending.customerId}/workspace`);
+        const stored = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+        if (!isCurrent()) return false;
+        const saved = stored.import_methods.find((item) => item.import_method_id === pending.method.import_method_id);
+        const matches = methodSaveMatches(pending.method, saved);
+        if (!matches) {
+          setWorkspaceMessage("The saved method doesn’t yet match that request. Your draft is retained. Check again before sending another save.");
+          setWorkspaceState("error");
+          return false;
+        }
+        setUnconfirmedMethodSave(null);
+        // Do not overwrite edits made while the earlier request was being checked.
+        const currentMatches = methodSaveMatches(pending.method, currentDraft());
+        savedMethodTitles.current.set(`${customerId}:${method.import_method_id}`, pending.method.name);
+        if (currentMatches) {
+          setDirtyImportMethodIds((ids) => ids.filter((id) => id !== method.import_method_id));
+          setLocalDraftImportMethodIds((ids) => ids.filter((id) => id !== method.import_method_id));
+        }
+        setWorkspaceMessage(currentMatches ? null : "The earlier save was verified. Your newer edits are still unsaved.");
+        setWorkspaceState("idle");
+        return Boolean(currentMatches);
+      } catch {
+        if (!isCurrent()) return false;
+        setWorkspaceMessage("We couldn’t verify the saved method. Your draft is retained; no new save was sent.");
+        setWorkspaceState("error");
+        return false;
+      } finally {
+        methodSaveInFlight.current = false;
+      }
+    }
     const normalizedName = method.name.trim();
     if (!normalizedName) {
-      setWorkspaceMessage("Enter a method name before saving.");
+      setMethodNameError(`${selectedCustomer.lift_customer_id}:${method.import_method_id}`);
+      setWorkspaceMessage(null);
+      window.requestAnimationFrame(() => methodNameInput.current?.focus());
       return false;
     }
+    setMethodNameError(null);
 
     if (!outputRoutes.some((route) => route.output_route_id === method.output_route_id)) {
       setWorkspaceMessage("Choose a valid output route before saving.");
@@ -6568,32 +6624,61 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return false;
     }
 
-    const isLocalDraft = localDraftImportMethodIds.includes(method.import_method_id);
     setWorkspaceState("saving");
+    methodSaveInFlight.current = true;
+    const submittedMethod = { ...method, name: normalizedName, mappings: nextMappings };
+    let saveResponse: Response | undefined;
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/import-methods/${method.import_method_id}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...method, name: normalizedName, mappings: nextMappings })
+          body: JSON.stringify(submittedMethod)
         }
       );
+      saveResponse = response;
       const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      if (!isCurrent()) return false;
       const savedMethod = nextWorkspace.import_methods.find(
         (candidate) => candidate.import_method_id === method.import_method_id
       );
-      setWorkspace(nextWorkspace);
-      setMappings(savedMethod?.mappings ?? nextMappings);
+      if (!savedMethod) throw new Error("The save response did not include this import method.");
+      const currentMatches = methodSaveMatches(submittedMethod, currentDraft());
+      savedMethodTitles.current.set(`${customerId}:${method.import_method_id}`, savedMethod.name);
+      if (!currentMatches) {
+        setWorkspaceMessage("The earlier save completed. Your newer edits are still unsaved.");
+        setWorkspaceState("idle");
+        return false;
+      }
+      // Merge only this method: a whole-workspace response can be older than
+      // drafts in other editors, routes or customer settings.
+      setWorkspace(current => current ? {
+        ...current,
+        import_methods: current.import_methods.map(item => item.import_method_id === method.import_method_id ? savedMethod : item),
+        // A first save may create the legacy template mirror. Retain that
+        // server addition without replacing other locally edited templates.
+        templates: [...current.templates, ...nextWorkspace.templates.filter(item => !current.templates.some(existing => existing.template_id === item.template_id))]
+      } : current);
+      if ((methodDraftRef.current.activeCustomerView === "Manual Import" ? methodDraftRef.current.manualImportMethodId : methodDraftRef.current.activeMethodId) === method.import_method_id) setMappings(savedMethod.mappings);
+      savedMethodTitles.current.delete(`${customerId}:${method.import_method_id}`);
       setDirtyImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
       setLocalDraftImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
-      setWorkspaceMessage(isLocalDraft ? "Import method created." : "Import method saved.");
+      setWorkspaceMessage(null);
       setWorkspaceState("idle");
       return true;
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Import method save failed.");
+      if (!isCurrent()) return false;
+      if (!saveResponse || saveResponse.status >= 500 || saveResponse.ok) {
+        setUnconfirmedMethodSave({ customerId: selectedCustomer.lift_customer_id, method: { ...method, name: normalizedName, mappings: nextMappings } });
+        setWorkspaceMessage("We couldn’t confirm the save. Your draft is retained. Check the saved method before trying again.");
+      } else {
+        setWorkspaceMessage(`${error instanceof Error ? error.message : "Import method save failed."} Your draft is retained.`);
+      }
       setWorkspaceState("error");
       return false;
+    } finally {
+      methodSaveInFlight.current = false;
     }
   }
 
@@ -7158,6 +7243,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const activeImportMethodHasUnsavedChanges = activeImportMethod
     ? dirtyImportMethodIds.includes(activeImportMethod.import_method_id)
     : false;
+  const activeMethodSaveUnconfirmed = unconfirmedMethodSave?.customerId === selectedCustomer.lift_customer_id && unconfirmedMethodSave.method.import_method_id === activeImportMethod?.import_method_id;
   const activeWrikeConfig = normalizeWrikeSourceConfig(
     activeImportMethod?.source_config.wrike ?? createDefaultWrikeSourceConfig()
   );
@@ -8840,6 +8926,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function requestGuardedNavigation(action: () => void) {
+    if (methodSaveInFlight.current) {
+      setWorkspaceMessage("A method save is still in progress. Please wait before leaving this workspace.");
+      return;
+    }
     if (
       activeGlobalView === "Customers" &&
       activeCustomerView === "Import Methods" &&
@@ -9217,6 +9307,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   function updateActiveMethodDraft(patch: Partial<ImportMethod>) {
     const methodId = activeImportMethod?.import_method_id;
+    setWorkspaceMessage(null);
+    if (activeImportMethod) {
+      const key = `${selectedCustomer.lift_customer_id}:${activeImportMethod.import_method_id}`;
+      if (!dirtyImportMethodIds.includes(activeImportMethod.import_method_id)) savedMethodTitles.current.set(key, activeImportMethod.name);
+      if (patch.name !== undefined) setMethodNameError(null);
+    }
     setWorkspace((current) => {
       if (!current || !activeImportMethod) {
         return current;
@@ -11675,14 +11771,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 {isImportMethodDetailOpen && activeImportMethod ? (
                   <section className="panel method-workspace-panel">
                     <div className="table-panel-header">
-                      <PanelHeader icon={FileSpreadsheet} title={activeImportMethod.name} detail="One save for source, resolution, and mappings" />
+                      <PanelHeader icon={FileSpreadsheet} title={activeImportMethod.name.trim() || savedMethodTitles.current.get(`${selectedCustomer.lift_customer_id}:${activeImportMethod.import_method_id}`) || "New import method"} detail="One save for source, resolution, and mappings" />
                       <div className="method-detail-actions">
                         <span
+                          role="status"
                           className={`method-save-state ${
                             activeImportMethodHasUnsavedChanges ? "method-save-state-dirty" : "method-save-state-clean"
                           }`}
                         >
-                          {localDraftImportMethodIds.includes(activeImportMethod.import_method_id) ? (
+                          {workspaceState === "saving" ? (
+                            activeMethodSaveUnconfirmed ? "Checking…" : "Saving…"
+                          ) : activeMethodSaveUnconfirmed ? (
+                            "Save unconfirmed"
+                          ) : localDraftImportMethodIds.includes(activeImportMethod.import_method_id) ? (
                             "Not saved yet"
                           ) : detectedSourceSchemaIsStale ? (
                             "Schema refresh required"
@@ -11724,14 +11825,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <button
                           className="primary-button table-header-action"
                           disabled={
-                            !activeImportMethodHasUnsavedChanges ||
-                            detectedSourceSchemaIsStale ||
+                            (!activeImportMethodHasUnsavedChanges && !activeMethodSaveUnconfirmed) ||
+                            (detectedSourceSchemaIsStale && !activeMethodSaveUnconfirmed) ||
                             workspaceState === "saving"
                           }
                           title={detectedSourceSchemaIsStale ? "Re-detect the source schema before saving." : undefined}
                           onClick={() => void saveImportMethod(activeImportMethod, mappings)}
                         >
-                          Save Method
+                          {activeMethodSaveUnconfirmed ? "Check saved method" : "Save Method"}
                         </button>
                       </div>
                     </div>
@@ -11749,12 +11850,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <PanelHeader icon={SlidersHorizontal} title="Method Setup" detail={activeImportMethod.import_method_id} />
                     <div className="setup-grid">
                       <label className="setup-control">
-                        <span>Name</span>
+                        <span className="vn-field-label" id="method-name-label">Name <small className="vn-required">Required</small></span>
                         <input
+                          ref={methodNameInput}
+                          aria-labelledby="method-name-label"
+                          required
                           value={activeImportMethod.name}
-                          aria-invalid={!activeImportMethod.name.trim()}
+                          aria-invalid={methodNameError === `${selectedCustomer.lift_customer_id}:${activeImportMethod.import_method_id}`}
+                          aria-describedby={methodNameError === `${selectedCustomer.lift_customer_id}:${activeImportMethod.import_method_id}` ? "method-name-error" : undefined}
                           onChange={(event) => updateActiveMethodDraft({ name: event.target.value })}
                         />
+                        {methodNameError === `${selectedCustomer.lift_customer_id}:${activeImportMethod.import_method_id}` ? <small id="method-name-error" className="vn-field-error" role="alert">Enter a method name.</small> : null}
                       </label>
                       <label className="setup-control">
                         <span>Type</span>
@@ -20916,35 +21022,28 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               ref={leaveDialogRef}
               role="dialog"
               aria-modal="true"
-              aria-label={leavePrompt.title}
+              aria-labelledby="leave-prompt-title"
+              aria-describedby="leave-prompt-description"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="modal-section-header">
                 <div>
-                  <p className="eyebrow">Unsaved Changes</p>
-                  <h2>{leavePrompt.title}</h2>
-                  <span>{leavePrompt.body}</span>
+                  <h2 id="leave-prompt-title">{leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "Check the save before leaving?" : "Save your changes before leaving?"}</h2>
+                  <p id="leave-prompt-description" className="vn-form-copy">{leavePrompt.scope === "target" && selectedTargetHasSharedUnsavedChanges ? leavePrompt.body : leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "The save may have completed. Check the saved method, or discard this local draft and reload the saved version." : "Your changes haven’t been saved."}</p>
                 </div>
                 <button className="modal-close-button" onClick={cancelLeavePrompt} aria-label="Keep editing">
                   <X size={16} />
                 </button>
               </div>
-              <div className="unsaved-changes-body">
-                <ShieldCheck size={22} />
-                <div>
-                  <strong>Choose how to continue.</strong>
-                  <span>Saving persists the current setup for future sessions and other users. Continuing without saving reloads the last saved version.</span>
-                </div>
-              </div>
               <div className="modal-action-row">
                 <button className="secondary-button" onClick={cancelLeavePrompt}>
-                  Keep Editing
+                  Keep editing
                 </button>
                 <button className="secondary-button" onClick={() => void discardPromptChangesAndContinue()}>
-                  Continue Without Saving
+                  Discard changes
                 </button>
                 <button className="primary-button" onClick={() => void savePromptChangesAndContinue()} disabled={workspaceState === "saving"}>
-                  {leavePrompt.scope === "import-method" ? "Save Method" : "Save Changes"}
+                  {leavePrompt.scope === "import-method" && activeMethodSaveUnconfirmed ? "Check saved method" : "Save changes"}
                 </button>
               </div>
             </section>

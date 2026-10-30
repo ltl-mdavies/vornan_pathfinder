@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AuthScreen, type AuthScreenState } from "../src/AuthScreen";
+import { PATHFINDER_SESSION_EXPIRED_MESSAGE } from "../src/api-client";
 
 const render = (state: AuthScreenState, error?: string) => renderToStaticMarkup(<AuthScreen state={state} error={error} onSignIn={() => {}} onSignOut={() => {}} />);
 
@@ -28,13 +29,17 @@ test("sign-in is disabled and announces progress while provider popup is opening
   assert.match(html, /aria-busy="true"/);
   assert.match(html, /role="status"/);
 });
-test("errors are escaped and retryable; expiry explains retry of the interrupted action", () => {
+test("errors remain actionable; expiry asks for sign-in without promising a safe retry", () => {
   const html = render("error", "<script>bad</script>");
   assert.match(html, /role="alert"/);
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /Continue with Google/);
   assert.doesNotMatch(html, /disabled=""/);
-  assert.match(render("expired"), /Your session expired.*retry your last action/);
+  const expired = render("expired");
+  assert.ok(expired.includes(PATHFINDER_SESSION_EXPIRED_MESSAGE));
+  assert.match(expired, /pf-auth-message-expired/);
+  assert.doesNotMatch(expired, /retry your last action/);
+  assert.doesNotMatch(html, /pf-auth-message-expired/);
 });
 test("restricted accounts only get sign out, unconfigured environments have no auth action", () => {
   assert.match(render("restricted"), /Sign out/);
