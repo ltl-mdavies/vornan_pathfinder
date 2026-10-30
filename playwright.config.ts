@@ -14,10 +14,15 @@ export default defineConfig({
     serviceWorkers: "block",
     trace: "retain-on-failure"
   },
-  webServer: {
+  webServer: [{
     command: "npx vite --config tests/browser/fixtures/vite.config.ts",
     url: "http://127.0.0.1:5190",
     reuseExistingServer: false,
     timeout: 120_000
-  }
+  }, {
+    command: "npx vite --config tests/browser/fixtures/proof-access.vite.config.ts",
+    url: "http://127.0.0.1:5191",
+    reuseExistingServer: false,
+    timeout: 120_000
+  }]
 });

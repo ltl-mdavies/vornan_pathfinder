@@ -6,6 +6,19 @@ export type ProofEntryState =
 
 const RAW_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 
+/** A failed link exchange is not an expired authenticated session. Never keep
+ * the token or original response on this error, or use it to end a cookie's
+ * existing session (which may belong to another open Proof tab).
+ */
+export class ProofAccessExchangeError extends Error {
+  constructor(rejected: boolean) {
+    super(rejected
+      ? "This link is invalid, expired, or has already been used."
+      : "We couldn’t open this proof link. Please contact Vornan for help accessing your proofs.");
+    this.name = "ProofAccessExchangeError";
+  }
+}
+
 /** A new access fragment is an explicit navigation, not a background refresh.
  * Start a fresh document so old order drafts, pending loads and the cached
  * bootstrap cannot cross into the next grant. Bootstrap still validates and

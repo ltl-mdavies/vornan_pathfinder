@@ -1,0 +1,32 @@
+{
+  "status": "source-only follow-up; production deployment held",
+  "base": "6496cf66332fb93914fb0f902270182f77c6443d",
+  "scope": "Proof frontend access-exchange error isolation and terminal-session response guards",
+  "behavior": [
+    "Rejected or unavailable link exchanges show link-unavailable without loading an existing cookie's order or calling remote session cleanup",
+    "Exchange failures are typed by stage rather than inferred solely from the current URL",
+    "Non-authorization exchange failures do not claim the link has expired",
+    "Authenticated order401 and actual session expiry retain fail-closed cleanup",
+    "Late queued, background, extension, completed-action, proof-update and feedback responses cannot restore a locally ended or expired ready state",
+    "Custom PDF controls, Share scope, reviewer form guards, refresh continuity and API contracts remain intact"
+  ],
+  "validation": {
+    "typecheck": "all workspaces pass",
+    "unitAndWorkspaceTests": { "passed": 1531, "failed": 0 },
+    "deploymentContractTests": { "passed": 187, "failed": 0 },
+    "browserTests": { "passed": 33, "failed": 0, "newAccessScenarios": 16 },
+    "builds": "all workspaces pass",
+    "isolation": "Synthetic localhost API only; browser tests block external traffic. No live tokens in fixtures."
+  },
+  "excluded": [
+    "Backend, API, grant, cookie policy or permission changes",
+    "Intake, Wrike, Status or Admin runtime changes",
+    "Production publishing or configuration changes",
+    "Live proof decisions, uploads, emails or reviewer identity saves"
+  ],
+  "limitations": [
+    "This fixes a source-confirmed existing failure path; the precise cause of the reported live link rejection was not captured",
+    "Synthetic viewer and session tests do not replace remaining authorized live Proof smoke or future post-deployment verification",
+    "Prior private rollback remains valid; the prior candidate Proof artifact is superseded and must not be published as this fix"
+  ]
+}
