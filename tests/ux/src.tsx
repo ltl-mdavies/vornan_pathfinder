@@ -16,6 +16,23 @@ import { createCatalogReview } from "./catalog-fixtures";
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
 const query = new URLSearchParams(location.search);
+// Customer Overview readability: opt-in synthetic values only; no live account data.
+if (query.has("overviewReview")) {
+  const example = {
+    sales_rep: "Alexandria Example — National Account Management",
+    customer_number: "QA-CUSTOMER-284619",
+    default_invoice_email_address: "accounts.receivable.long.address@example.invalid",
+    crm_id: "QA-CRM-284619",
+    terms: "Net 30",
+    terms_status: "Current",
+    credit_hold: "No",
+    credit_limit: 25000,
+    available_credit: 25000,
+    unpaid_total: 0
+  };
+  Object.assign(fixtures.customers.find(customer => customer.lift_customer_id === "284619")!, example);
+  Object.assign(fixtures.workspaces["284619"].customer, example);
+}
 const startupReview = createStartupReview(query);
 const proofSettingsReview = query.has("proofSettings") ? createProofSettingsReview(fixtures.workspaces, query) : null;
 const catalogReview = query.has("catalogReview") ? createCatalogReview(query) : null;
