@@ -11,6 +11,15 @@ test("accepted transport records sending without claiming file import or continu
 });
 
 const intent: RevisionIntent = { task_id: "task1", attachment_id: "123", version_id: "v1", asset_id: "asset1", filename: "revision.pdf", line_number: "3", idempotency_key: "revision_key_1" };
+test("known unsent artwork is distinct from uncertain transport without offering an automatic retry", () => {
+  const copy = revisionSubmissionCopy({ state: "not_sent" });
+  assert.equal(copy.title, "Artwork not sent");
+  assert.equal(copy.tone, "unsent");
+  assert.match(copy.detail, /not sent to the production team/);
+  assert.match(copy.detail, /Vornan contact/);
+  assert.match(copy.detail, /continue reviewing other proofs/);
+  assert.equal(revisionProtectsProof(intent, "123", "v1"), true);
+});
 test("write-ahead recovery is participant/order scoped, reloadable and excludes duplicate attempts", () => {
   const key = revisionIntentKey("A0232139", "reviewer1");
   assert.notEqual(key, revisionIntentKey("A0232139", "reviewer2"));

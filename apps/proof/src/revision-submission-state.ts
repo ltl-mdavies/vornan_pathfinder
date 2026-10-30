@@ -43,6 +43,13 @@ export function saveRevisionIntent(storage: Pick<Storage, "setItem">, key: strin
 
 /** A positive transport receipt is not evidence that Lift imported the file. */
 export function revisionSubmissionCopy(receipt: Pick<ProofRevisionSubmission, "state"> | null) {
+  if (receipt?.state === "not_sent") {
+    return {
+      title: "Artwork not sent",
+      detail: "Your file is saved, but it was not sent to the production team. Please ask your Vornan contact to review this submission before trying again. You can continue reviewing other proofs.",
+      tone: "unsent" as const
+    };
+  }
   if (receipt?.state === "accepted") {
     return {
       title: "Artwork sent",

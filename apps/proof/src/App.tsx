@@ -1166,6 +1166,13 @@ export function App() {
   const [identityEmail, setIdentityEmail] = useState("");
   const [identitySaving, setIdentitySaving] = useState(false);
   const [identityError, setIdentityError] = useState<string | null>(null);
+  const [identityFieldErrors, setIdentityFieldErrors] = useState<{ name?: string; email?: string }>({});
+  const [identityDiscardOpen, setIdentityDiscardOpen] = useState(false);
+  const [identitySaveUncertain, setIdentitySaveUncertain] = useState(false);
+  const identityBaseline = useRef({ name: "", email: "" });
+  const identityCloseOrigin = useRef<HTMLElement | null>(null);
+  const identityKeepEditing = useRef<HTMLButtonElement>(null);
+  const identityEmailInput = useRef<HTMLInputElement>(null);
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackImagePreview, setFeedbackImagePreview] = useState<FeedbackImagePreview | null>(null);
@@ -1203,7 +1210,9 @@ export function App() {
   const endLocalSession = () => {
     bootstrapPromise = null;
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/session-ended`);
-    setLoadState(terminalState("session_ended"));
+    const ended = terminalState("session_ended");
+    loadStateRef.current = ended;
+    setLoadState(ended);
   };
   const sessionTerminator = useRef<ReturnType<typeof createFailClosedSessionTerminator> | null>(null);
   const terminateSession = () => {
@@ -1785,42 +1794,117 @@ export function App() {
 
   const openIdentityDialog = (opener: HTMLElement | null) => {
     identityDialogOpener.current = opener;
+    if (identitySaveUncertain) { setIdentityDiscardOpen(false); setIdentityOpen(true); return; }
     setIdentityName(participant?.display_name ?? "");
     setIdentityEmail(participant?.email ?? "");
     setIdentityError(null);
+    setIdentityFieldErrors({});
+    setIdentityDiscardOpen(false);
+    setIdentitySaveUncertain(false);
+    identityBaseline.current = { name: participant?.display_name ?? "", email: participant?.email ?? "" };
     setIdentityOpen(true);
   };
 
+  const identityDirty = identityName !== identityBaseline.current.name || identityEmail !== identityBaseline.current.email;
+  useEffect(() => {
+    if (loadState.status !== "ready" || (!identityDirty && !identitySaveUncertain)) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [loadState.status, identityDirty, identitySaveUncertain]);
+  const requestIdentityClose = () => {
+    if (identitySaving) return;
+    if (!identityDirty) { identityDialogElement.current?.close(); return; }
+    identityCloseOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setIdentityDiscardOpen(true);
+  };
+  const keepIdentityEditing = () => {
+    setIdentityDiscardOpen(false);
+    window.requestAnimationFrame(() => {
+      const origin = identityCloseOrigin.current;
+      if (origin?.isConnected) origin.focus();
+      else identityNameInput.current?.focus();
+    });
+  };
+  useEffect(() => {
+    if (identityDiscardOpen) identityKeepEditing.current?.focus();
+  }, [identityDiscardOpen]);
+
   const saveIdentity = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (loadState.status !== "ready" || identitySaving) return;
+    if (loadState.status !== "ready" || identitySaving || identitySaveUncertain) return;
+    const errors = {
+      name: !identityName.trim() ? "Enter your name." : identityName.trim().length < 2 ? "Enter at least 2 characters." : undefined,
+      email: !identityEmail.trim() ? "Enter your email address." : identityEmailInput.current?.validity.typeMismatch ? "Enter a valid email address." : undefined
+    };
+    setIdentityFieldErrors(errors);
+    if (errors.name || errors.email) {
+      (errors.name ? identityNameInput.current : identityEmailInput.current)?.focus();
+      return;
+    }
     setIdentitySaving(true);
     setIdentityError(null);
     try {
       const saved = demoEnabled
         ? { participant: { participant_id: participant?.participant_id ?? "demo-participant", display_name: identityName.trim(), email: identityEmail.trim().toLowerCase() } }
         : await identifyParticipant(identityName, identityEmail);
+      const latest = loadStateRef.current;
+      if (latest.status !== "ready" || sessionExpiryDelay(latest.session_expires_at) === 0) { terminateSession(); return; }
       setLoadState({
-        ...loadState,
+        ...latest,
         participant: saved.participant,
         activity: {
-          identified_reviewers: loadState.participant
-            ? loadState.activity.identified_reviewers
-            : loadState.activity.identified_reviewers + 1,
+          identified_reviewers: latest.participant
+            ? latest.activity.identified_reviewers
+            : latest.activity.identified_reviewers + 1,
           last_activity_at: new Date().toISOString(),
           reviewer_names_visible: false
         }
       });
+      identityBaseline.current = { name: identityName, email: identityEmail };
       identityDialogElement.current?.close();
+      setActionOutcome({ title: "Reviewer details saved", detail: "Your reviewer identity has been updated." });
     } catch (error) {
+      if (loadStateRef.current.status !== "ready") return;
       if (error instanceof ProofApiError && error.status === 401) {
         terminateSession();
         return;
       }
-      setIdentityError(error instanceof Error ? error.message : "Reviewer details could not be saved.");
+      if (!(error instanceof ProofApiError) || error.status >= 500) {
+        setIdentitySaveUncertain(true);
+        setIdentityError("We couldn’t confirm the save. Your edits are still here. Check the saved details before trying again.");
+      } else {
+        setIdentityError(`${error instanceof Error ? error.message : "Reviewer details could not be saved."} Your edits are still here.`);
+      }
     } finally {
       setIdentitySaving(false);
     }
+  };
+
+  const checkIdentitySave = async () => {
+    if (loadState.status !== "ready" || identitySaving) return;
+    setIdentitySaving(true);
+    try {
+      const current = await loadProofOrder();
+      const latest = loadStateRef.current;
+      if (latest.status !== "ready" || sessionExpiryDelay(latest.session_expires_at) === 0) { terminateSession(); return; }
+      if (current.participant?.display_name === identityName.trim() && current.participant?.email.toLowerCase() === identityEmail.trim().toLowerCase()) {
+        setLoadState((state) => state.status === "ready" ? { ...state, participant: current.participant, activity: current.activity } : state);
+        setIdentitySaveUncertain(false);
+        identityBaseline.current = { name: identityName, email: identityEmail };
+        identityDialogElement.current?.close();
+        setActionOutcome({ title: "Reviewer details saved", detail: "The saved reviewer identity has been verified." });
+      } else {
+        setIdentityError("The saved details don’t yet match these edits. Keep this draft open and check again before retrying a save.");
+      }
+    } catch (error) {
+      if (loadStateRef.current.status !== "ready") return;
+      if (error instanceof ProofApiError && error.status === 401) { terminateSession(); return; }
+      setIdentityError("We couldn’t verify the saved details. Your edits are still here; no new save was sent.");
+    } finally { setIdentitySaving(false); }
   };
 
   const acknowledgeCurrentFeedback = async () => {
@@ -1899,7 +1983,7 @@ export function App() {
     return (
       <main
         ref={terminalStateElement}
-        className="center-state error-state"
+        className={`center-state error-state${loadState.kind === "session_ended" || loadState.kind === "link_unavailable" ? " access-recovery-state" : ""}`}
         aria-labelledby="proof-terminal-heading"
         tabIndex={-1}
       >
@@ -2157,7 +2241,7 @@ export function App() {
             </>
           ) : (
             <div className="preview-empty">
-              {filter === "open" && order!.tasks.length ? <CheckCircle2 aria-hidden="true" /> : <FileText aria-hidden="true" />}
+              {completionEmpty ? <CheckCircle2 aria-hidden="true" /> : <Search aria-hidden="true" />}
               <strong>{emptyState?.title ?? "Select a proof"}</strong>
               {emptyState ? <span>{emptyState.detail}</span> : null}
               {completionEmpty ? <button className="button secondary completion-button" type="button" onClick={() => changeFilter("approved")}>View approved proofs</button> : null}
@@ -2252,7 +2336,7 @@ export function App() {
           })}
           {!visibleTasks.length && emptyState ? (
             <div className="mobile-empty" role={completionEmpty ? "region" : "status"} aria-label={completionEmpty ? "Proof review complete" : undefined}>
-              <CheckCircle2 aria-hidden="true" />
+              {completionEmpty ? <CheckCircle2 aria-hidden="true" /> : <Search aria-hidden="true" />}
               <strong>{emptyState.title}</strong>
               <span>{emptyState.detail}</span>
               {completionEmpty ? <button className="button secondary completion-button" type="button" onClick={() => changeFilter("approved")}>View approved proofs</button> : null}
@@ -2437,43 +2521,63 @@ export function App() {
         <dialog
           ref={identityDialogElement}
           className="proof-dialog identity-dialog"
-          aria-labelledby="identity-dialog-title"
-          aria-describedby="identity-dialog-description"
+          aria-labelledby={identityDiscardOpen ? "identity-discard-title" : "identity-dialog-title"}
+          aria-describedby={identityDiscardOpen ? "identity-discard-description" : "identity-dialog-description"}
+          onKeyDown={(event) => {
+            if (event.key !== "Tab") return;
+            const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])')].filter((element) => element.getClientRects().length > 0);
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+          }}
           onCancel={(event) => {
             event.preventDefault();
-            identityDialogElement.current?.close();
+            if (identityDiscardOpen) keepIdentityEditing();
+            else requestIdentityClose();
           }}
           onClose={() => {
             setIdentityOpen(false);
             restoreDialogFocus(identityDialogOpener.current);
           }}
         >
-          <form onSubmit={(event) => void saveIdentity(event)}>
+          {identityDiscardOpen ? (
+            <div className="vn-discard-confirmation">
+              <h2 id="identity-discard-title">{identitySaveUncertain ? "Close while the save is unconfirmed?" : "Discard your changes?"}</h2>
+              <p id="identity-discard-description">{identitySaveUncertain ? "The save may have completed. These details will be kept here so you can check again." : "Your reviewer details haven’t been saved."}</p>
+              <div className="identity-actions">
+                <button ref={identityKeepEditing} className="button primary" type="button" onClick={keepIdentityEditing}>Keep editing</button>
+                <button className="button secondary" type="button" onClick={() => identityDialogElement.current?.close()}>{identitySaveUncertain ? "Close for now" : "Discard changes"}</button>
+              </div>
+            </div>
+          ) : <form noValidate onSubmit={(event) => void saveIdentity(event)}>
             <div className="dialog-heading">
               <div>
                 <span className="eyebrow">Reviewer identity</span>
                 <h2 id="identity-dialog-title">Tell Vornan who is reviewing</h2>
                 <p className="sr-only" id="identity-dialog-description">Reviewer details are optional for viewing and visible only to authorized Vornan operators.</p>
               </div>
-              <button className="icon-button subtle" type="button" aria-label="Close reviewer details" onClick={() => identityDialogElement.current?.close()}><X aria-hidden="true" /></button>
+              <button className="icon-button subtle" type="button" disabled={identitySaving} aria-label="Close reviewer details" onClick={requestIdentityClose}><X aria-hidden="true" /></button>
             </div>
             <div className="dialog-content identity-form">
-              <p>Viewing remains available without identification. These details will be required before a future approval or revision request and are visible only to authorized Vornan operators.</p>
+              <p>Identify yourself before approving proofs or requesting changes, where your access allows. Reviewer details are visible only to authorized Vornan operators.</p>
               <label>
-                <span>Name</span>
-                <input ref={identityNameInput} required minLength={2} maxLength={80} autoComplete="name" value={identityName} onChange={(event) => setIdentityName(event.target.value)} />
+                <span className="vn-field-label">Name <small className="vn-required">Required</small></span>
+                <input ref={identityNameInput} disabled={identitySaving || identitySaveUncertain} required minLength={2} maxLength={80} aria-invalid={Boolean(identityFieldErrors.name)} aria-describedby={identityFieldErrors.name ? "identity-name-error" : undefined} autoComplete="name" value={identityName} onChange={(event) => { setIdentityName(event.target.value); setIdentityFieldErrors((current) => ({ ...current, name: undefined })); setIdentityError(null); }} />
+                {identityFieldErrors.name ? <small className="vn-field-error" id="identity-name-error" role="alert">{identityFieldErrors.name}</small> : null}
               </label>
               <label>
-                <span>Email</span>
-                <input required type="email" maxLength={254} autoComplete="email" value={identityEmail} onChange={(event) => setIdentityEmail(event.target.value)} />
+                <span className="vn-field-label">Email <small className="vn-required">Required</small></span>
+                <input ref={identityEmailInput} disabled={identitySaving || identitySaveUncertain} required type="email" maxLength={254} aria-invalid={Boolean(identityFieldErrors.email)} aria-describedby={identityFieldErrors.email ? "identity-email-error" : undefined} autoComplete="email" value={identityEmail} onChange={(event) => { setIdentityEmail(event.target.value); setIdentityFieldErrors((current) => ({ ...current, email: undefined })); setIdentityError(null); }} />
+                {identityFieldErrors.email ? <small className="vn-field-error" id="identity-email-error" role="alert">{identityFieldErrors.email}</small> : null}
               </label>
               {identityError ? <p className="form-error" role="alert">{identityError}</p> : null}
               <div className="identity-actions">
-                <button className="button secondary" type="button" onClick={() => identityDialogElement.current?.close()}>Cancel</button>
-                <button className="button primary" type="submit" disabled={identitySaving}>{identitySaving ? "Saving…" : participant ? "Update reviewer" : "Save reviewer"}</button>
+                <span className="vn-save-feedback" role="status">{identitySaving ? identitySaveUncertain ? "Checking…" : "Saving…" : identitySaveUncertain ? "Save unconfirmed" : identityDirty ? "Unsaved changes" : ""}</span>
+                <button className="button secondary" type="button" disabled={identitySaving} onClick={requestIdentityClose}>Cancel</button>
+                {identitySaveUncertain ? <button className="button primary" type="button" disabled={identitySaving} onClick={() => void checkIdentitySave()}>{identitySaving ? "Checking…" : "Check saved details"}</button> : <button className="button primary" type="submit" disabled={identitySaving}>{identitySaving ? "Saving…" : participant ? "Update reviewer" : "Save reviewer"}</button>}
               </div>
             </div>
-          </form>
+          </form>}
         </dialog>
       ) : null}
     </div>

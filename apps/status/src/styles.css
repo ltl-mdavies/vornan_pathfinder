@@ -202,7 +202,7 @@ textarea {
 .order-selector small {
   margin-top: 5px;
   color: #697566;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.3;
 }
 
@@ -257,7 +257,7 @@ h3 {
 
 p {
   color: #5f6c5b;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1.45;
 }
 
@@ -276,7 +276,7 @@ p {
   display: block;
   color: #748071;
   font-size: 0.72rem;
-  font-weight: 850;
+  font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -293,7 +293,7 @@ p {
   margin-top: 10px;
   color: #657160;
   font-size: 0.82rem;
-  font-weight: 750;
+  font-weight: 800;
   line-height: 1.35;
 }
 
@@ -445,7 +445,7 @@ p {
   border-radius: 999px;
   background: #eef4e8;
   color: #315c3b;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .progress-step.complete span {
@@ -475,7 +475,7 @@ p {
 .progress-step small {
   margin-top: 5px;
   color: #667263;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.3;
 }
 
@@ -518,7 +518,7 @@ p {
 
 .issue-strip span {
   color: #6f5d3d;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .order-lines {
@@ -538,7 +538,7 @@ p {
 
 .section-heading span {
   color: #667263;
-  font-weight: 750;
+  font-weight: 800;
 }
 
 .line-summary-chips {
@@ -558,7 +558,7 @@ p {
   background: #f7faf4;
   color: #315c3b;
   font-size: 0.85rem;
-  font-weight: 850;
+  font-weight: 800;
 }
 
 .line-card {
@@ -590,7 +590,7 @@ p {
   border-radius: 999px;
   background: #315c3b;
   color: #fff;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .line-status {
@@ -647,7 +647,7 @@ a:hover {
 .package-list span,
 .muted {
   color: #687564;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .privacy-note {
@@ -659,7 +659,7 @@ a:hover {
   border-radius: 10px;
   color: #5d6859;
   font-size: 0.82rem;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .hero-meta {
@@ -668,7 +668,7 @@ a:hover {
   gap: 10px 0;
   color: var(--muted);
   font-size: 0.88rem;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .hero-meta span {
@@ -764,7 +764,7 @@ a:hover {
 .request-form-header span {
   color: #748071;
   font-size: 0.72rem;
-  font-weight: 850;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
@@ -776,7 +776,7 @@ a:hover {
 label {
   color: #72806f;
   font-size: 0.72rem;
-  font-weight: 850;
+  font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -788,7 +788,7 @@ textarea {
   border-radius: 8px;
   color: #191818;
   background: #fff;
-  font-weight: 750;
+  font-weight: 800;
 }
 
 input {
@@ -806,7 +806,7 @@ textarea {
 .field-hint {
   margin-top: -6px;
   color: #6d786a;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 button {
@@ -816,7 +816,7 @@ button {
   padding: 0 18px;
   background: #315c3b;
   color: #fff;
-  font-weight: 900;
+  font-weight: 800;
   cursor: pointer;
 }
 
@@ -960,7 +960,7 @@ button:disabled {
 
 .intake-expectation span {
   color: #aeb9ab;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1.45;
 }
 
@@ -993,7 +993,7 @@ button:disabled {
 .intake-card-heading span {
   color: #748071;
   font-size: 0.76rem;
-  font-weight: 850;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
@@ -1031,7 +1031,7 @@ button:disabled {
 .intake-verification small {
   color: #748071;
   font-size: 0.78rem;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .intake-verification button {
@@ -1049,7 +1049,7 @@ button:disabled {
   min-width: 0;
   text-align: center;
   letter-spacing: 0.2em;
-  font-weight: 850;
+  font-weight: 800;
 }
 
 .intake-verification-resend {
@@ -1077,7 +1077,7 @@ button:disabled {
   border-radius: 999px;
   background: #315c3b;
   color: #fff;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .intake-drop-zone {
@@ -1118,7 +1118,7 @@ button:disabled {
   margin: 23px 0;
   color: #8a9587;
   font-size: 0.75rem;
-  font-weight: 850;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
@@ -1147,7 +1147,7 @@ button:disabled {
 
 .intake-columns summary {
   cursor: pointer;
-  font-weight: 850;
+  font-weight: 800;
 }
 
 .intake-columns p {
@@ -1195,7 +1195,7 @@ button:disabled {
 
 .intake-preview-heading > div > span {
   color: #748071;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .preview-count {
@@ -1223,7 +1223,7 @@ button:disabled {
 .preview-count span {
   margin-top: 3px;
   font-size: 0.78rem;
-  font-weight: 750;
+  font-weight: 800;
 }
 
 .intake-row-list {
@@ -1249,7 +1249,7 @@ button:disabled {
 .intake-row-list article > div small {
   margin-top: 4px;
   color: #748071;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .row-status {
@@ -1257,7 +1257,7 @@ button:disabled {
   border-radius: 999px;
   padding: 7px 10px;
   font-size: 0.74rem;
-  font-weight: 900;
+  font-weight: 800;
   text-align: center;
 }
 
@@ -1308,7 +1308,7 @@ button:disabled {
   background: #315c3b;
   color: #fff;
   font-size: 1.6rem;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .intake-success h1,
@@ -1328,7 +1328,7 @@ button:disabled {
 .intake-reference span,
 .intake-reference small {
   color: #6c7869;
-  font-weight: 750;
+  font-weight: 800;
 }
 
 @media (max-width: 820px) {

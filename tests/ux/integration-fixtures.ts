@@ -89,7 +89,10 @@ export function createIntegrationReview(seed: IntegrationSeed, query: URLSearchP
       const changed = state.fields.filter(field => before.has(field.path) && JSON.stringify(before.get(field.path)) !== JSON.stringify(field)).map(field => ({ path: field.path, before: before.get(field.path), after: field }));
       return reply({ snapshot_id: snapshot.snapshot_id, snapshot_version: snapshot.version, current_version: seed.registry.version, counts: { added: added.length, removed: removed.length, changed: changed.length }, diff: { added, removed, changed } });
     }
-    if (method === "GET" && customer && path.endsWith("/workspace")) return reply(workspace(customer) ?? { error: "Workspace not found." }, workspace(customer) ? 200 : 404);
+    if (method === "GET" && customer && path.endsWith("/workspace")) {
+      if (query.has("verifyDelay") && state.failures.some(item => item.includes(`/customers/${customer}/import-methods/`))) await new Promise(resolve => setTimeout(resolve, 2500));
+      return reply(workspace(customer) ?? { error: "Workspace not found." }, workspace(customer) ? 200 : 404);
+    }
     if (method === "GET" && customer && path.endsWith("/source-connections")) return query.has("connectionsError") ? reply({ error: "Synthetic source-connection read denied." }, 403) : reply({ definitions: SOURCE_CONNECTOR_DEFINITIONS, connections: seed.workspaces[customer] ? [connection(customer)] : [] });
     const proofing = path.match(/^\/api\/targets\/([^/]+)\/environments\/([^/]+)\/proofing-api$/);
     if (method === "GET" && proofing) {
@@ -129,6 +132,7 @@ export function createIntegrationReview(seed: IntegrationSeed, query: URLSearchP
     }
     const nameMatch = path.match(/^\/api\/customers\/([^/]+)\/(output-routes|import-methods)\/([^/]+)$/);
     if (method === "PUT" && nameMatch) {
+      if (query.has("saveDelay")) await new Promise(resolve => setTimeout(resolve, 2500));
       const gate = saveGate(path); if (gate) return gate;
       const current = workspace(nameMatch[1]);
       const collection = nameMatch[2] === "output-routes" ? current?.output_routes : current?.import_methods;
@@ -140,6 +144,10 @@ export function createIntegrationReview(seed: IntegrationSeed, query: URLSearchP
       if (typeof input.name !== "string" || !input.name.trim()) return reply({ error: "Name is required in this local scenario." }, 400);
       const next = clone(state), key = nameMatch[2] === "output-routes" ? "routeNames" : "methodNames";
       next[key][nameMatch[1]] = { ...next[key][nameMatch[1]], [nameMatch[3]]: input.name.trim() }; next.sequence++; commit(next);
+      if (query.has("saveUncertain") && !state.failures.includes(path)) {
+        next.failures.push(path); commit(next);
+        return reply({ error: "Local QA: saved response interrupted." }, 503);
+      }
       return reply(workspace(nameMatch[1]));
     }
     return null;

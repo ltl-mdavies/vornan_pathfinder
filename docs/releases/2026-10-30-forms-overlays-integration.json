@@ -1,0 +1,46 @@
+{
+  "status": "source integration only; production deployment held",
+  "base": "a3bdd8fb1054d2f9bea330242d67e235f4340708",
+  "uxAcceptedSourceFingerprint": "71c95fcb722a391f91c3590b5e2c1a43c449865ce36308fd1978151e17c907d9",
+  "sourceEquivalence": "All 24 accepted source/test paths copied byte-for-byte; no visual redesign during integration.",
+  "proofProvenance": {
+    "reviewBase": "95dd9bd1be5360b7aaefc1945f5e5734f4b7bfa3",
+    "ownedFrontendTree": "1b7a634f8196a97b1c736e8adcd11e13f3aa1133",
+    "sourceMapping": ["9c25776 -> cd06da7", "6ff8879 -> 95dd9bd"],
+    "carriedPendingFiles": [
+      "apps/proof/src/api.ts",
+      "apps/proof/src/main.tsx",
+      "apps/proof/src/revision-submission-progress.tsx",
+      "apps/proof/src/revision-submission-state.ts",
+      "apps/proof/src/session-state.ts",
+      "apps/proof/tests/revision-submission-state.test.ts",
+      "apps/proof/tests/session-state.test.ts"
+    ],
+    "compatibility": "Frontend access recovery and additive not_sent handling are compatible with current backend. Preserve the access watcher, foundation import, session teardown, terminal receipts and Share scope. Related pending backend commits are deliberately NOT included; later integration must retain these frontend hunks."
+  },
+  "changes": [
+    "Approved shared visual foundation and form/recovery presentation",
+    "Retain newer import-method drafts across pending saves and read-only verification",
+    "Prevent late reviewer identity responses from restoring ended/expired sessions",
+    "Required-field focus, dirty-discard and unload protection",
+    "Status publishing retains prior assets; assets precede HTML; manual main-only workflow unchanged"
+  ],
+  "excluded": ["API and domain changes", "Dependency or lockfile changes", "Production configuration", "New grants or Share activation", "Provider submissions, proof decisions, uploads and email"],
+  "validation": {
+    "cleanLockfileInstall": "pass",
+    "workspaceTypecheck": "pass",
+    "workspaceTests": {"passed": 1530, "failed": 0},
+    "deploymentContractTests": {"passed": 187, "failed": 0},
+    "productionConfiguredFrontendBuilds": "all three pass",
+    "artifactComparison": "Proof and Status exactly match reviewed artifacts. Web differs only by a leading 604-byte Firebase license comment and corresponding hashed-filename references; executable output otherwise identical. Use clean-lockfile build manifests, not earlier test artifacts.",
+    "nativeReloadCancellation": "Local method draft retained with Unsaved changes after cancelling Chrome beforeunload",
+    "dependencyAudit": "Unchanged lockfile install reports 27 findings (8 moderate,17 high,2 critical); no dependency remediation or absence-of-vulnerabilities claim in this scope."
+  },
+  "releaseHold": "This source change is not a deployment. Operational resource IDs, private rollback/archive evidence and access URLs are intentionally excluded from this repository record. Release owner must retain private artifacts, refresh concurrency and finish available public-session/post-deployment smoke before release acceptance.",
+  "coverageLimits": [
+    "Read-only deployed Admin baseline is not candidate post-deployment validation",
+    "Active public Proof and Status access unavailable at integration start; no fresh access minted",
+    "Physical mobile keyboard and screen-reader speech not tested",
+    "API transactions protect simultaneous writes, but sequential stale operator drafts lack client-baseline conflict detection; separate follow-up recommended"
+  ]
+}

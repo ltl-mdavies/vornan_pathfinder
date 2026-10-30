@@ -8,6 +8,43 @@ import {
   sessionSecondsRemaining,
   sessionWarningVisible
 } from "../src/session-state.ts";
+import { watchProofAccessNavigation } from "../src/session-state.ts";
+
+test("new access navigation reloads once without replaying workspace refreshes", () => {
+  let listener: (() => void) | undefined;
+  let reloads = 0;
+  const location = { hash: "#/session-ended", reload: () => { reloads += 1; } };
+  const dispose = watchProofAccessNavigation({
+    location,
+    addEventListener: (_type, callback) => { listener = callback; },
+    removeEventListener: (_type, callback) => { assert.equal(callback, listener); listener = undefined; }
+  });
+  assert.equal(reloads, 0, "initial document load belongs to normal bootstrap");
+  for (const hash of ["#/proof", "#/session-ended", "#/link-unavailable"]) {
+    location.hash = hash;
+    listener!();
+  }
+  assert.equal(reloads, 0, "normal route/quiet-refresh behavior is unchanged");
+  location.hash = `#/access/${"A".repeat(43)}`;
+  listener!();
+  listener!();
+  assert.equal(reloads, 1);
+  dispose();
+  assert.equal(listener, undefined);
+});
+
+test("malformed access navigation also reaches fail-closed bootstrap", () => {
+  let listener: (() => void) | undefined;
+  let reloads = 0;
+  watchProofAccessNavigation({
+    location: { hash: "#/access/invalid", reload: () => { reloads += 1; } },
+    addEventListener: (_type, callback) => { listener = callback; },
+    removeEventListener: () => undefined
+  });
+  listener!();
+  assert.equal(reloads, 1);
+  assert.deepEqual(proofEntryState("#/access/invalid"), { kind: "link_unavailable" });
+});
 
 test("classifies valid fragment tokens without accepting malformed token shapes", () => {
   const token = "A".repeat(43);

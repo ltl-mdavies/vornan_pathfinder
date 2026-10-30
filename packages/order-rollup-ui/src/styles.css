@@ -39,14 +39,14 @@
 .order-rollup__line-title p {
   margin-bottom: 0;
   color: #657160;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .order-rollup__eyebrow {
   margin-bottom: 7px;
   color: #3d6044;
   font-size: 0.72rem;
-  font-weight: 900;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
@@ -65,7 +65,7 @@
   display: block;
   color: #768273;
   font-size: 0.68rem;
-  font-weight: 900;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
@@ -82,7 +82,7 @@
 .order-rollup__header-status small {
   margin-top: 6px;
   color: #5f6b5c;
-  font-weight: 750;
+  font-weight: 800;
 }
 
 .order-rollup__header-status .order-rollup__freshness {
@@ -121,7 +121,7 @@
   margin-top: 4px;
   color: #778274;
   font-size: 0.7rem;
-  font-weight: 750;
+  font-weight: 800;
 }
 
 .order-rollup__proof-summary {
@@ -167,13 +167,13 @@
 
 .order-rollup__shipment-overview > div > span {
   font-size: 0.68rem;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .order-rollup__shipment-overview > div > strong { margin-top: 4px; font-size: 1.05rem; }
-.order-rollup__shipment-overview > div > small { margin-top: 5px; color: #657160; font-weight: 750; }
+.order-rollup__shipment-overview > div > small { margin-top: 5px; color: #657160; font-weight: 800; }
 
 .order-rollup__shipment-overview dl {
   display: grid;
@@ -187,8 +187,8 @@
 }
 
 .order-rollup__shipment-overview dl > div { min-width: 0; padding: 9px 12px; background: #fff; }
-.order-rollup__shipment-overview dt { color: #768273; font-size: 0.62rem; font-weight: 900; text-transform: uppercase; }
-.order-rollup__shipment-overview dd { margin: 4px 0 0; font-size: 1rem; font-weight: 900; }
+.order-rollup__shipment-overview dt { color: #768273; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; }
+.order-rollup__shipment-overview dd { margin: 4px 0 0; font-size: 1rem; font-weight: 800; }
 
 .order-rollup__shipment-details {
   border-top: 1px solid #d5dfd0;
@@ -211,7 +211,7 @@
   content: "Show";
   color: #315c3b;
   font-size: 0.72rem;
-  font-weight: 900;
+  font-weight: 800;
 }
 .order-rollup__shipment-details[open] > summary::after { content: "Hide"; }
 .order-rollup__shipment-details > summary > span { font-size: 0.84rem; letter-spacing: 0; text-transform: none; }
@@ -254,10 +254,10 @@
   color: #536050;
   font-size: 0.8rem;
   font-style: normal;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.45;
 }
-.order-rollup__shipment-address-pending { margin: 10px 0 0; color: #6b7768; font-size: 0.78rem; font-weight: 700; }
+.order-rollup__shipment-address-pending { margin: 10px 0 0; color: #6b7768; font-size: 0.78rem; font-weight: 800; }
 .order-rollup__shipment-tracking-list { display: grid; gap: 8px; margin-top: 12px; }
 .order-rollup__shipment-tracking-list article { padding: 10px; border-radius: 7px; background: #f5f8f2; }
 .order-rollup__shipment-tracking-list article > div { display: grid; gap: 4px; }
@@ -271,7 +271,7 @@
 }
 .order-rollup__shipment-tracking-list a { overflow-wrap: normal; white-space: nowrap; }
 .order-rollup__shipment-tracking-list article > div span { color: #657160; font-size: 0.7rem; letter-spacing: 0; text-align: left; text-transform: none; }
-.order-rollup__shipment-tracking-list p { margin: 6px 0 0; font-size: 0.76rem; font-weight: 750; }
+.order-rollup__shipment-tracking-list p { margin: 6px 0 0; font-size: 0.76rem; font-weight: 800; }
 .order-rollup__shipment-tracking-list article > small { margin-top: 4px; font-size: 0.68rem; }
 
 .order-rollup__proof-summary.is-action-required {
@@ -287,18 +287,18 @@
 
 .order-rollup__proof-summary span {
   font-size: 0.68rem;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .order-rollup__proof-summary strong { margin-top: 4px; font-size: 1.05rem; }
-.order-rollup__proof-summary small { margin-top: 5px; font-weight: 750; }
+.order-rollup__proof-summary small { margin-top: 5px; font-weight: 800; }
 
 .order-rollup__proof-summary p {
   margin: 0;
   line-height: 1.45;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .order-rollup__issues {
@@ -347,7 +347,7 @@
 .order-rollup__lines-heading-actions > span {
   color: #687365;
   font-size: 0.74rem;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .order-rollup__lines-heading-actions > button {
@@ -406,7 +406,7 @@
   border-radius: 999px;
   background: #315c3b;
   color: #fff;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .order-rollup__line-title h3 {
@@ -426,7 +426,7 @@
   background: #f1f6ec;
   color: #315c3b;
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .order-rollup__rail-wrap {
@@ -450,7 +450,7 @@
 
 .order-rollup__current-step span { color: #687564; }
 .order-rollup__current-step strong { color: #24452d; }
-.order-rollup__current-step small { color: #687564; font-weight: 700; }
+.order-rollup__current-step small { color: #687564; font-weight: 800; }
 
 .order-rollup__rail {
   position: relative;
@@ -512,7 +512,7 @@
 .order-rollup__rail strong,
 .order-rollup__rail small { display: block; }
 .order-rollup__rail strong { margin-top: 7px; color: #315c3b; font-size: 0.72rem; }
-.order-rollup__rail small { margin-top: 2px; color: #4f5e4d; font-size: 0.72rem; font-weight: 750; line-height: 1.15; }
+.order-rollup__rail small { margin-top: 2px; color: #4f5e4d; font-size: 0.72rem; font-weight: 800; line-height: 1.15; }
 .order-rollup__rail li.upcoming { opacity: 0.58; }
 .order-rollup__rail li.current strong,
 .order-rollup__rail li.current small { color: #191818; }
@@ -553,14 +553,14 @@
   background: #eef4e8;
   color: #315c3b;
   font-size: 0.76rem;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .order-rollup__empty {
   margin: 10px 0 0;
   color: #6b7768;
   font-size: 0.88rem;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .order-rollup__proofs,
@@ -649,14 +649,14 @@
 .order-rollup__packages span { display: block; }
 
 .order-rollup__proof-card span,
-.order-rollup__packages span { margin-top: 3px; color: #6b7768; font-size: 0.82rem; font-weight: 650; }
+.order-rollup__packages span { margin-top: 3px; color: #6b7768; font-size: 0.82rem; font-weight: 500; }
 
 .order-rollup__proof-card small {
   display: block;
   margin-top: 4px;
   color: #788275;
   font-size: 0.74rem;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .order-rollup__proof-card .order-rollup__proof-state {
@@ -697,7 +697,7 @@
 .order-rollup__package-card strong { color: #24452d; }
 .order-rollup__package-card span { overflow-wrap: anywhere; text-align: right; }
 .order-rollup__package-card p { margin: 7px 0 0; font-size: 0.86rem; font-weight: 800; }
-.order-rollup__package-card small { display: block; margin-top: 4px; color: #6b7768; font-size: 0.75rem; font-weight: 700; }
+.order-rollup__package-card small { display: block; margin-top: 4px; color: #6b7768; font-size: 0.75rem; font-weight: 800; }
 
 .order-rollup__lightbox-backdrop {
   position: fixed;
@@ -732,7 +732,7 @@
 .order-rollup__lightbox > header span { color: #768273; font-size: 0.65rem; }
 .order-rollup__lightbox > header strong { max-width: min(62vw, 720px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .order-rollup__lightbox-actions { display: flex; gap: 8px; align-items: center; }
-.order-rollup__lightbox-actions button { border: 1px solid #d5dfd0; border-radius: 7px; padding: 9px 12px; background: #fff; color: #315c3b; font: inherit; font-size: 0.78rem; font-weight: 850; text-decoration: none; }
+.order-rollup__lightbox-actions button { border: 1px solid #d5dfd0; border-radius: 7px; padding: 9px 12px; background: #fff; color: #315c3b; font: inherit; font-size: 0.78rem; font-weight: 800; text-decoration: none; }
 .order-rollup__lightbox-actions button { cursor: pointer; }
 .order-rollup__lightbox-canvas { position: relative; display: grid; min-height: 0; align-items: center; justify-items: center; overflow: auto; padding: 24px; background: #eef2eb; }
 .order-rollup__lightbox-canvas img { display: block; max-width: 100%; max-height: 100%; border-radius: 5px; object-fit: contain; box-shadow: 0 8px 26px rgba(26, 49, 31, 0.16); }
@@ -757,7 +757,7 @@
   animation: order-rollup-proof-spinner 0.9s linear infinite;
 }
 .order-rollup__lightbox-loading strong { font-size: 0.92rem; }
-.order-rollup__lightbox-loading span { max-width: 360px; color: #687564; font-size: 0.76rem; font-weight: 700; line-height: 1.4; }
+.order-rollup__lightbox-loading span { max-width: 360px; color: #687564; font-size: 0.76rem; font-weight: 800; line-height: 1.4; }
 .order-rollup__lightbox-canvas.is-error .order-rollup__lightbox-loading { color: #7a463d; }
 
 .order-rollup--public {
@@ -805,7 +805,7 @@
   margin: 8px 0 0;
   color: #405b45;
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.45;
 }
 
@@ -827,13 +827,13 @@
 .order-rollup__at-a-glance dt {
   color: #687365;
   font-size: 0.78rem;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .order-rollup__line-step-summary > span {
   color: #748071;
   font-size: 0.67rem;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
@@ -842,7 +842,7 @@
   margin: 0;
   color: #191818;
   font-size: 0.8rem;
-  font-weight: 850;
+  font-weight: 800;
   text-align: right;
 }
 
@@ -896,7 +896,7 @@
   background: transparent;
   color: #657160;
   font-size: 0.68rem;
-  font-weight: 650;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -904,7 +904,7 @@
   margin-top: 7px;
   color: #596657;
   font-size: 0.74rem;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.45;
 }
 
@@ -927,7 +927,7 @@
 .order-rollup__shipment-package-meta > span {
   color: #637060;
   font-size: 0.61rem;
-  font-weight: 850;
+  font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -935,7 +935,7 @@
 .order-rollup__shipment-package-meta > strong {
   color: #223b28;
   font-size: 0.78rem;
-  font-weight: 750;
+  font-weight: 800;
 }
 
 .order-rollup__shipment-tracking-number {
@@ -978,7 +978,7 @@
   margin: 0;
   color: #334a38;
   font-size: 0.73rem;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.4;
 }
 
@@ -986,7 +986,7 @@
   margin-top: 3px;
   color: #687365;
   font-size: 0.68rem;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.35;
 }
 
@@ -995,7 +995,7 @@
   margin: 4px 0 0;
   color: #7a8477;
   font-size: 0.64rem;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .order-rollup__shipment-empty {
@@ -1015,7 +1015,7 @@
 .order-rollup__shipment-empty span {
   color: #687365;
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.4;
 }
 
@@ -1058,7 +1058,7 @@
   padding: 0 18px 16px;
   color: #7b8578;
   font-size: 0.64rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .order-rollup--public .order-rollup__section-availability,
@@ -1093,7 +1093,7 @@
   margin: 5px 0 0;
   color: #191818;
   font-size: 0.82rem;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.25;
 }
 
@@ -1130,7 +1130,7 @@
   background: #f5f7f4;
   color: #626a60;
   font-size: 0.78rem;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.45;
 }
 
@@ -1237,7 +1237,7 @@
 
 .order-rollup__line-counts span:last-child {
   color: #687365;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .order-rollup__line-heading--public .order-rollup__status {
@@ -1292,14 +1292,14 @@
   margin-top: 6px;
   color: #5f6d5c;
   font-size: 0.64rem;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .order-rollup__line-card--public .order-rollup__rail small {
   margin-top: 2px;
   color: #687365;
   font-size: 0.64rem;
-  font-weight: 550;
+  font-weight: 500;
   line-height: 1.2;
 }
 

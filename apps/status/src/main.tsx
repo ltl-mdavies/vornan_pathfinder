@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   LiftStepDefinition,
@@ -22,6 +22,7 @@ import {
 } from "./live-refresh";
 import "./styles.css";
 import "@pathfinder/order-rollup-ui/styles.css";
+import "../../../packages/ui/src/vornan-foundation.css";
 
 const apiBaseUrl =
   import.meta.env.VITE_STATUS_API_BASE_URL ??
@@ -368,6 +369,9 @@ function StatusRequestForm({ initialOrderNumbers = [] }: { initialOrderNumbers?:
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
   const [debugLink, setDebugLink] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ orders?: string; email?: string }>({});
+  const ordersInput = useRef<HTMLTextAreaElement>(null);
+  const emailInput = useRef<HTMLInputElement>(null);
   const [emailCapability, setEmailCapability] = useState<
     { state: "checking" } | { state: "ready"; value: StatusEmailCapability } | { state: "unavailable"; value: StatusEmailCapability | null }
   >({ state: "checking" });
@@ -407,7 +411,7 @@ function StatusRequestForm({ initialOrderNumbers = [] }: { initialOrderNumbers?:
         <p>
           {checking
             ? "Please wait while we confirm that private status links can be delivered."
-            : "We are not accepting email-link requests until delivery is fully operational."}
+            : "Please contact your Vornan representative for help with your order status."}
         </p>
         {!checking && contactEmail ? (
           <a className="status-email-contact" href={`mailto:${contactEmail}`}>Request a new link from {contactEmail}</a>
@@ -418,17 +422,19 @@ function StatusRequestForm({ initialOrderNumbers = [] }: { initialOrderNumbers?:
 
   return (
     <form
+      noValidate
       onSubmit={(event) => {
         event.preventDefault();
+        if (state === "sending") return;
         const orderNumbers = parseOrderNumbers(orderNumberInput);
-        if (!orderNumbers.length || !email.trim()) {
-          setState("error");
-          setMessage("Enter at least one order number and an email address.");
-          return;
-        }
-        if (orderNumbers.length > 10) {
-          setState("error");
-          setMessage("Enter no more than 10 order numbers at a time.");
+        const errors = {
+          orders: !orderNumbers.length ? "Enter at least one order number." : orderNumbers.length > 10 ? "Enter no more than 10 order numbers." : undefined,
+          email: !email.trim() ? "Enter your email address." : emailInput.current?.validity.typeMismatch ? "Enter a valid email address." : undefined
+        };
+        setFieldErrors(errors);
+        if (errors.orders || errors.email) {
+          setMessage("");
+          (errors.orders ? ordersInput.current : emailInput.current)?.focus();
           return;
         }
         setState("sending");
@@ -466,30 +472,42 @@ function StatusRequestForm({ initialOrderNumbers = [] }: { initialOrderNumbers?:
     >
       <div className="request-form-header">
         <span>Private status link</span>
-        <strong>Sent by email</strong>
+        <strong>Delivery by email</strong>
       </div>
-      <label htmlFor="order-numbers">Lift order numbers</label>
+      <label htmlFor="order-numbers" className="vn-field-label">Lift order numbers <small className="vn-required">Required</small></label>
       <textarea
         id="order-numbers"
+        ref={ordersInput}
+        required
+        disabled={state === "sending"}
+        aria-invalid={Boolean(fieldErrors.orders)}
+        aria-describedby={`order-numbers-hint${fieldErrors.orders ? " order-numbers-error" : ""}`}
         value={orderNumberInput}
-        onChange={(event) => setOrderNumberInput(event.target.value)}
+        onChange={(event) => { setOrderNumberInput(event.target.value); setFieldErrors((current) => ({ ...current, orders: undefined })); setMessage(""); }}
         placeholder={"A0219986\nA0219987"}
         autoComplete="off"
       />
-      <small className="field-hint">Use the A-number shown in Lift or your Wrike confirmation. One per line, up to 10.</small>
-      <label htmlFor="request-email">Email address</label>
+      <small className="field-hint" id="order-numbers-hint">Use the A-number shown in Lift or your order confirmation. One per line, up to 10.</small>
+      {fieldErrors.orders ? <small className="vn-field-error" id="order-numbers-error" role="alert">{fieldErrors.orders}</small> : null}
+      <label htmlFor="request-email" className="vn-field-label">Email address <small className="vn-required">Required</small></label>
       <input
         id="request-email"
+        ref={emailInput}
+        required
+        disabled={state === "sending"}
+        aria-invalid={Boolean(fieldErrors.email)}
+        aria-describedby={fieldErrors.email ? "request-email-error" : undefined}
         value={email}
-        onChange={(event) => setEmail(event.target.value)}
+        onChange={(event) => { setEmail(event.target.value); setFieldErrors((current) => ({ ...current, email: undefined })); setMessage(""); }}
         placeholder="name@company.com"
         type="email"
         autoComplete="email"
       />
+      {fieldErrors.email ? <small className="vn-field-error" id="request-email-error" role="alert">{fieldErrors.email}</small> : null}
       <button type="submit" disabled={state === "sending"}>
         {state === "sending" ? "Sending link" : "Email my status link"}
       </button>
-      {message ? <p className={`request-message ${state === "error" ? "error" : ""}`}>{message}</p> : null}
+      {message ? <p role={state === "error" ? "alert" : "status"} className={`request-message ${state === "error" ? "error" : ""}`}>{message}</p> : null}
       {debugLink ? (
         <a className="debug-link" href={debugLink}>
           Open test status link
@@ -505,7 +523,7 @@ function StatusRequest() {
       <div>
         <p className="eyebrow">Order Status</p>
         <h1>Check your order status.</h1>
-        <p>Enter one or more Lift order numbers and your email. We will send one private link when the request matches our records.</p>
+        <p>Access your order details through a private status link.</p>
         <p className="request-note">Order details, proof files, and shipment updates are shown when available.</p>
       </div>
       <StatusRequestForm />
@@ -999,7 +1017,7 @@ function App() {
 
   return (
     <main className="status-shell">
-      <PublicStatusHeader productName="Order status" refreshState={refreshState} />
+      <PublicStatusHeader productName="Order status" refreshState={payload ? refreshState : undefined} />
 
       {!initialToken ? <StatusRequest /> : null}
 
@@ -1009,7 +1027,7 @@ function App() {
             <span className="loading-dot" />
             <div>
               <strong>Opening your order status</strong>
-              <p>Loading the last confirmed view now. The newest Lift updates will follow in the background.</p>
+              <p>Please wait while we open your private status link.</p>
             </div>
           </div>
           <div className="status-skeleton" aria-hidden="true">
@@ -1024,7 +1042,7 @@ function App() {
         <section className="status-request">
           <div className="status-error-card">
             <p className="eyebrow">Status Link</p>
-            <h1>This link could not be opened.</h1>
+            <h1>We couldn’t open this status link.</h1>
             <p>{message || "Request a new secure link to see the latest available order status."}</p>
           </div>
           <StatusRequestForm initialOrderNumbers={recoveryOrderNumbers} />

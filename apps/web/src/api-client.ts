@@ -1,5 +1,5 @@
 export const PATHFINDER_SESSION_EXPIRED_MESSAGE =
-  "Your Pathfinder session expired. Sign in again to continue, then retry your last action.";
+  "Your session has expired. Sign in to continue.";
 
 type AuthTokenProvider = (forceRefresh?: boolean) => Promise<string | null>;
 type SessionExpiredHandler = (message: string) => void | Promise<void>;
