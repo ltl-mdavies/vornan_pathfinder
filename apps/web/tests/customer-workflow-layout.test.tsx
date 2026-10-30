@@ -20,10 +20,13 @@ test("Overview leads with operational metrics and jobs, retaining account/route 
   assert.match(overview, /Counts use loaded, non-archived jobs/);
 });
 
-test("Overview keeps customer and account values visible without invented account assurances", () => {
+test("Overview switches customer and account views without invented account assurances", () => {
   const details = overview.slice(overview.indexOf('className="customer-overview"'), overview.indexOf('className="overview-grid overview-grid-two"'));
   assert.doesNotMatch(details, /<details|<summary|No account flags|className="target-logo"/);
-  assert.match(details, /aria-labelledby="customer-account-status-heading"/);
+  assert.match(details, /aria-label="Customer information view"/);
+  assert.match(details, /hidden=\{customerDetailsView !== "account"\}/);
+  assert.match(details, /hidden=\{customerDetailsView !== "details"\}/);
+  assert.match(details, /label="Route" value=\{primaryOutputRoute.name\}/);
   for (const field of ['customer_name', 'customer_status', 'lift_customer_id', 'sales_rep', 'customer_number', 'default_invoice_email_address', 'crm_id', 'terms', 'terms_status', 'credit_hold', 'credit_limit', 'available_credit', 'unpaid_total']) {
     assert.ok(details.includes(`selectedCustomer.${field}`), field);
   }

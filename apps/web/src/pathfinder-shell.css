@@ -113,7 +113,16 @@
 .pf-shell [data-customer-view="Overview"] .metric-card :is(span,small) {font-size:12px;line-height:1.4;margin-top:4px}
 .pf-shell [data-customer-view="Overview"] .metric-card small {font-weight:500;color:#687563}
 .pf-shell [data-customer-view="Overview"] .metric-card small.trend-bad {color:#8b601d}
-.pf-shell [data-customer-view="Overview"] .customer-overview {grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:16px;margin-bottom:12px;align-items:start}
+.pf-shell [data-customer-view="Overview"] .customer-overview {grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:16px;margin-bottom:12px;align-items:stretch}
+.pf-shell [data-customer-view="Overview"] .customer-overview>.panel {height:100%;min-width:0}
+.pf-shell [data-customer-view="Overview"] .pf-customer-detail-switch {display:flex;gap:20px;padding:0 20px;border-bottom:1px solid var(--border-subtle)}
+.pf-shell [data-customer-view="Overview"] .pf-customer-detail-switch button {background:none;border:0;border-bottom:2px solid transparent;padding:12px 0;color:var(--text-muted);font:inherit;font-size:13px;cursor:pointer}
+.pf-shell [data-customer-view="Overview"] .pf-customer-detail-switch button[aria-pressed="true"] {border-bottom-color:var(--vornan-forest);color:var(--vornan-forest);font-weight:700}
+.pf-shell [data-customer-view="Overview"] .pf-customer-detail-switch button:focus-visible {outline:2px solid var(--vornan-forest);outline-offset:3px}
+.pf-shell [data-customer-view="Overview"] .pf-customer-detail-views {display:grid}
+.pf-shell [data-customer-view="Overview"] .pf-customer-detail-view {grid-area:1/1;min-width:0}
+.pf-shell [data-customer-view="Overview"] .pf-customer-detail-view[hidden] {display:block!important;visibility:hidden}
+.pf-shell [data-customer-view="Overview"] .target-summary dt {text-transform:none;letter-spacing:normal}
 .pf-shell [data-customer-view="Overview"] .customer-detail-grid {padding:16px 20px;gap:16px 24px}
 .pf-shell [data-customer-view="Overview"] .customer-detail-grid>div {padding:0;border:0;min-width:0}
 .pf-shell [data-customer-view="Overview"] :is(dd,.target-identity strong,.target-identity span) {white-space:normal;overflow-wrap:anywhere;overflow:visible;text-overflow:clip;font-size:14px}
