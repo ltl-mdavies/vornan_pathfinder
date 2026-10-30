@@ -807,7 +807,7 @@ h1, h2, h3, p { margin-top: 0; }
   .creative-approval-progress-dialog .quantity-batch-footer > .button:only-child { grid-column: 1 / -1; }
 }
 
-/* Desktop refinements only; existing mobile and allocation layouts remain intact. */
+/* Desktop refinements only; existing mobile and multi-creative layouts remain intact. */
 @media(min-width:901px){
   .proof-viewer.has-filmstrip{grid-template-columns:clamp(128px,8.34vw,160px) minmax(0,1fr)}
   .proof-filmstrip .filmstrip-filename,.proof-filmstrip .filmstrip-status{font-size:10px}
