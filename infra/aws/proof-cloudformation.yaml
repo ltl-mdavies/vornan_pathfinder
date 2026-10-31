@@ -278,6 +278,7 @@ Parameters:
 
 Conditions:
   StatusHandoffActive: !Equals [!Ref StatusHandoffLtlDemoEnabled, "true"]
+  StatusReviewerSigninActive: !Equals [!Ref StatusReviewerSigninEnabled, "true"]
   PrepareStatusReviewerRuntime: !Equals [!Ref StatusReviewerRuntimePrepared, "true"]
   StatusReviewerCspPrepared: !Not [!Equals [!Ref StatusReviewerFirebaseProjectId, ""]]
   HasPublicFunctionCodeOverride: !Not [!Equals [!Ref PublicFunctionCodeS3Key, ""]]
@@ -871,7 +872,9 @@ Resources:
               Value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
               Override: true
             - Header: Cross-Origin-Opener-Policy
-              Value: same-origin
+              # Firebase popup sign-in needs its cross-origin callback window.
+              # Keep strict isolation when reviewer sign-in is disabled.
+              Value: !If [StatusReviewerSigninActive, same-origin-allow-popups, same-origin]
               Override: true
 
   ProofApiResponseHeadersPolicy:
