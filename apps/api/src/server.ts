@@ -2102,6 +2102,7 @@ async function buildInternalOrderSnapshotForJob(
         orderNumber: context.orderNumber, cached: proofOrder,
         orderPayload: orderLookup?.payload, proofPayload: proofReport?.payload,
         orderOk: orderLookup?.ok === true, proofOk: proofReport?.ok === true,
+        orderFetchedAt: orderLookup?.fetched_at, proofFetchedAt: proofReport?.fetched_at,
         now: new Date().toISOString()
       }) : undefined,
       packageDetails,
