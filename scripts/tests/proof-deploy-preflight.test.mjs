@@ -215,7 +215,7 @@ test("allows browser uploads only to the exact private asset bucket during the b
   );
   assert.match(
     webHeaders,
-    /ContentSecurityPolicy: !If\s+- CustomerRevisionUploadActive\s+- !Sub "default-src 'self'; connect-src 'self' https:\/\/\$\{ProofAssetBucketName\}\.s3\.\$\{AWS::Region\}\.amazonaws\.com https:\/\/lifters-integration-prod\.s3\.amazonaws\.com https:\/\/lifterp-graphics-prod-c\.s3\.amazonaws\.com;/
+    /- !If\s+- CustomerRevisionUploadActive\s+- !Sub "default-src 'self'; connect-src 'self' https:\/\/\$\{ProofAssetBucketName\}\.s3\.\$\{AWS::Region\}\.amazonaws\.com https:\/\/lifters-integration-prod\.s3\.amazonaws\.com https:\/\/lifterp-graphics-prod-c\.s3\.amazonaws\.com;/
   );
   assert.match(
     webHeaders,
@@ -223,6 +223,7 @@ test("allows browser uploads only to the exact private asset bucket during the b
   );
   assert.doesNotMatch(webHeaders, /connect-src 'self' https:\s*;/);
   assert.doesNotMatch(webHeaders, /connect-src 'self' \*;/);
+  assert.ok(webHeaders.includes('RevisionOrigin: !If [CustomerRevisionUploadActive, !Sub "https://${ProofAssetBucketName}.s3.${AWS::Region}.amazonaws.com", ""]'));
 });
 
 test("allows framing only for the session-bound Detailed Report viewer route", () => {

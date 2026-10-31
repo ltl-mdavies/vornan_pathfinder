@@ -12,6 +12,7 @@ import type {
 } from "@pathfinder/order-rollup";
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
 import { proofReviewProgress } from "./proof-state";
+import { ProofReviewNotice } from "./ProofReviewNotice";
 import { CustomerIntake } from "./intake";
 import {
   proxyHighResolutionProofAssets,
@@ -592,10 +593,14 @@ function PackageList({ packages }: { packages: StatusPackage[] }) {
 
 function StatusView({
   payload,
-  refreshState
+  refreshState,
+  statusToken,
+  previewProofAction
 }: {
   payload: PublicStatusResponse;
   refreshState: PublicStatusRefreshState;
+  statusToken?: string;
+  previewProofAction?: () => void;
 }) {
   const snapshots = payload.snapshots?.length ? payload.snapshots : [payload.snapshot];
   const [selectedOrderKey, setSelectedOrderKey] = useState(snapshots[0].order_key);
@@ -604,9 +609,6 @@ function StatusView({
   const orderTitle = snapshot.live_order?.order_title ?? snapshot.header.order_title ?? snapshot.order_number;
   const expiresAt = displayDate(payload.link.expires_at);
   const steps = progressSteps(snapshot);
-  const proofReviewRequired = snapshot.proof_summary?.review_required === true
-    && (snapshot.proof_visibility === "review_link" || snapshot.proof_summary.access_mode === "review_link");
-  const pendingProofs = snapshot.proof_summary?.pending ?? 0;
   const orderCancelled = snapshot.lifecycle?.state === "cancelled";
 
   return (
@@ -678,21 +680,27 @@ function StatusView({
         </section>
       )}
 
-      {!orderCancelled && proofReviewRequired ? (
-        <aside className="proof-review-notice" role="status" aria-label="Proof approval required">
-          <div>
-            <strong>Proof approval required</strong>
-            <span>
-              {pendingProofs > 0
-                ? `${pendingProofs} proof${pendingProofs === 1 ? " is" : "s are"} ready for your review and approval.`
-                : "Proofs are ready for your review and approval."}
-            </span>
-          </div>
-          {snapshot.proof_summary?.review_url ? (
-            <a href={snapshot.proof_summary.review_url} target="_blank" rel="noreferrer">Open Proof</a>
-          ) : null}
-        </aside>
-      ) : null}
+      <ProofReviewNotice summary={snapshot.proof_summary} visibility={snapshot.proof_visibility}
+        key={snapshot.order_key} cancelled={orderCancelled} checking={refreshState === "checking"} previewAction={previewProofAction}
+        requestView={statusToken ? async () => {
+          const proofTab = window.open("about:blank", "_blank");
+          if (!proofTab) throw new Error("Proof tab could not be opened");
+          proofTab.opener = null;
+          proofTab.document.title = "Opening Vornan Proof";
+          proofTab.document.body.textContent = "Opening Vornan Proof…";
+          try {
+          const response = await fetch(`${apiBaseUrl}/public/status/${encodeURIComponent(statusToken)}/proof-view`, {
+            method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({order_number:snapshot.order_number})
+          });
+          if (!response.ok) throw new Error("Proof viewing access unavailable");
+          const result = await response.json();
+          if (result.scope !== "view" || typeof result.access_url !== "string"
+            || !/^https:\/\/proof\.vornan\.co\/\?statusView=1&statusOrder=A\d{7,8}#\/access\/[A-Za-z0-9_-]{43}$/.test(result.access_url)
+            || new URL(result.access_url).searchParams.get("statusOrder") !== snapshot.order_number) throw new Error("Invalid Proof destination");
+          proofTab.location.replace(result.access_url);
+          } catch (error) { proofTab.close(); throw error; }
+        } : undefined} />
 
       <OrderRollup
         snapshot={snapshot}
@@ -748,6 +756,22 @@ function PublicStatusHeader({
 }
 
 function DesignQaApp() {
+  const entryReview = new URLSearchParams(window.location.search).has("proofEntry");
+  const [reviewScenario, setReviewScenario] = useState("many");
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [previewAssetsReady, setPreviewAssetsReady] = useState(false);
+  useEffect(() => {
+    if (!entryReview || !navigator.serviceWorker) return;
+    const ready = () => setPreviewAssetsReady(Boolean(navigator.serviceWorker.controller));
+    navigator.serviceWorker.addEventListener("controllerchange", ready);
+    void navigator.serviceWorker.register("/qa-proof-preview-worker.js", { scope: "/design-qa" }).then(ready);
+    return () => navigator.serviceWorker.removeEventListener("controllerchange", ready);
+  }, [entryReview]);
+  const handoffDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (handoffOpen) handoffDialog.current?.showModal();
+    else handoffDialog.current?.close();
+  }, [handoffOpen]);
   const [refreshState, setRefreshState] = useState<PublicStatusRefreshState>("checking");
   useEffect(() => {
     const timer = window.setTimeout(() => setRefreshState("live"), 1_800);
@@ -869,10 +893,58 @@ function DesignQaApp() {
     link: { status: "active", expires_at: "2026-10-09T16:00:00.000Z", order_count: 1 }
   };
 
+  if (entryReview) {
+    snapshot.order_number = "QA-PROOF-ENTRY";
+    snapshot.header.order_title = "Packaging artwork · local review";
+    snapshot.customer = { source_customer_name: "LTL Demo", submit_customer_name: "LTL Demo" };
+    snapshot.header.po_number = "QA-ONLY";
+    snapshot.header.contract_number = null;
+    const approvalStep = { ...printStep, step_id: "1037", step_number: "7.02", step_name: "Approve Art", step_code: "APPROVE_ART", order_status: "Pending Art Approval", order_status_code: "PENDING_ART_APPROVAL" };
+    snapshot.order_status = { ...snapshot.order_status!, label: "Pending Art Approval", code: "PENDING_ART_APPROVAL", step: approvalStep };
+    snapshot.refreshed_at = "2026-10-31T16:00:00.000Z";
+    snapshot.header.requested_ship_date = "2026-11-05";
+    snapshot.header.due_date = "2026-11-06";
+    payload.link.expires_at = "2026-12-30T16:00:00.000Z";
+    const pending = reviewScenario === "none" ? 0 : reviewScenario === "one" ? 1 : 3;
+    snapshot.proof_summary = { ...snapshot.proof_summary!, health: reviewScenario === "unavailable" ? "stale" : "active",
+      pending, reviewed: 4 - pending, total: 4, review_required: pending > 0, access_mode: "review_link", review_url: null };
+    snapshot.proof_visibility = reviewScenario === "ineligible" ? "status_only" : "review_link";
+    if (reviewScenario === "ineligible") snapshot.proof_summary.access_mode = "status_only";
+    snapshot.lines.forEach((line, lineIndex) => {
+      line.product_name = lineIndex === 0 ? "Paper Label · retail packaging" : "Paper Label · shipping carton";
+      line.material = "White paper";
+      line.step = snapshot.order_status!.step;
+      line.packages = []; line.package_count = 0; line.latest_tracking_message = null;
+      line.proofs = Array.from({length: lineIndex === 0 ? 3 : 1}, (_, index) => {
+        const approved = reviewScenario === "none" || (reviewScenario === "one" ? lineIndex !== 0 || index !== 0 : lineIndex === 0 && index === 2);
+        return { proof_filename: ["Retail_front_panel_ingredient_and_handling_information_revision_03.pdf", "Retail_back_panel_nutrition_information_revision_02.pdf", "Retail_barcode_and_batch_label_approved.pdf"][index],
+          proof_state: approved ? "approved" : "pending", proof_approval_status: approved ? "APPROVED" : "PENDING",
+          created_ts: `30-OCT-2026 0${index+1}:15:00 PM`, proof_approved_ts: approved ? "31-OCT-2026 08:10:00 AM" : null,
+          preview_kind: "image", proof_link_low: previewAssetsReady ? `https://status-preview.invalid/public/status/synthetic/proof-asset?line=${lineIndex+1}&creative=${index+1}` : null,
+          proof_link_high: null };
+      });
+      line.proof_count = line.proofs.length;
+      line.proof_review_required = line.proofs.some(proof => proof.proof_state === "pending");
+      line.latest_proof_status = line.proof_review_required ? "PENDING" : "APPROVED";
+    });
+  }
+
   return (
     <main className="status-shell">
       <PublicStatusHeader productName="Order status" refreshState={refreshState} />
-      <StatusView payload={payload} refreshState={refreshState} />
+      {entryReview ? <div className="proof-entry-qa-controls"><strong>Local review · synthetic artwork</strong><label>Proof state <select value={reviewScenario} onChange={event => setReviewScenario(event.target.value)}>
+        <option value="many">3 pending · review available</option><option value="one">1 pending</option><option value="none">None pending</option>
+        <option value="checking">Checking availability</option><option value="unavailable">Status unavailable</option><option value="ineligible">Review access not connected</option>
+      </select></label></div> : null}
+      <StatusView payload={payload} refreshState={entryReview ? reviewScenario === "checking" ? "checking" : "live" : refreshState}
+        previewProofAction={entryReview ? () => setHandoffOpen(true) : undefined} />
+      {entryReview ? <dialog className="proof-entry-qa-dialog" ref={handoffDialog} onCancel={() => setHandoffOpen(false)} onClose={() => setHandoffOpen(false)} aria-labelledby="proof-entry-preview-title">
+        <h2 id="proof-entry-preview-title">Continue to Vornan Proof</h2>
+        <p>This local preview demonstrates the review handoff. No proof session has been created.</p>
+        <p>Open the current artwork in Proof with view-only access. Approval and change requests require separate, verified reviewer authorization. Entering a name or email does not grant permission.</p>
+        <p>Opening Proof does not approve anything. Status access alone does not grant approval permission.</p>
+        <button type="button" autoFocus onClick={() => setHandoffOpen(false)}>Back to order status</button>
+      </dialog> : null}
     </main>
   );
 }
@@ -1049,7 +1121,7 @@ function App() {
         </section>
       ) : null}
 
-      {payload ? <StatusView payload={payload} refreshState={refreshState} /> : null}
+      {payload ? <StatusView payload={payload} refreshState={refreshState} statusToken={initialToken ?? undefined} /> : null}
     </main>
   );
 }

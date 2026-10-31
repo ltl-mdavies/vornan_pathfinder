@@ -2,6 +2,16 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Vornan Proof read-only foundation - dedicated core persistence and isolated public API boundary.
 
 Parameters:
+  StatusReviewerRuntimePrepared:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Wire the packaged keyless verifier only on Proof public Lambda. Does not enable handoff or reviewer sign-in.
+  StatusReviewerFirebaseProjectId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+    Description: Optional CSP preparation only. Does not enable handoff or reviewer access. Must match the reviewed Firebase build configuration.
   EnvironmentName:
     Type: String
     Default: dev
@@ -252,6 +262,8 @@ Parameters:
     AllowedValues: [14, 30, 60, 90, 120, 180, 365]
 
 Conditions:
+  PrepareStatusReviewerRuntime: !Equals [!Ref StatusReviewerRuntimePrepared, "true"]
+  StatusReviewerCspPrepared: !Not [!Equals [!Ref StatusReviewerFirebaseProjectId, ""]]
   HasPublicFunctionCodeOverride: !Not [!Equals [!Ref PublicFunctionCodeS3Key, ""]]
   HasOperatorFunctionCodeOverride: !Not [!Equals [!Ref OperatorFunctionCodeS3Key, ""]]
   HasPublicLambdaCode: !And
@@ -291,6 +303,11 @@ Conditions:
     - !Condition LtlDemoQaSessionReadActive
 
 Rules:
+  StatusReviewerRuntimeProject:
+    RuleCondition: !Equals [!Ref StatusReviewerRuntimePrepared, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref StatusReviewerFirebaseProjectId, "ltl-dashboard-site"]
+        AssertDescription: The packaged verifier is restricted to Pathfinder Firebase project ltl-dashboard-site.
   ProofAliasAndCertificateMustBePaired:
     Assertions:
       - Assert: !Or
@@ -672,6 +689,107 @@ Resources:
             MetricName: proof-public-task-routes-rate-limit
             SampledRequestsEnabled: true
 
+        - Name: StatusTokenExchangeRateLimit
+          Priority: 6
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 100
+              EvaluationWindowSec: 300
+              ScopeDownStatement:
+                RegexMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  RegexString: "^/api/public/proof/status-view/sessions/?$"
+                  TextTransformations:
+                    - Priority: 0
+                      Type: URL_DECODE
+                    - Priority: 1
+                      Type: NORMALIZE_PATH
+                    - Priority: 2
+                      Type: LOWERCASE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: proof-status-token-exchange-rate-limit
+            SampledRequestsEnabled: false
+        - Name: StatusReviewerSignInRateLimit
+          Priority: 7
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 30
+              EvaluationWindowSec: 300
+              ScopeDownStatement:
+                RegexMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  RegexString: "^/api/public/proof/status-view/reviewer-session/?$"
+                  TextTransformations:
+                    - Priority: 0
+                      Type: URL_DECODE
+                    - Priority: 1
+                      Type: NORMALIZE_PATH
+                    - Priority: 2
+                      Type: LOWERCASE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: proof-status-reviewer-signin-rate-limit
+            SampledRequestsEnabled: false
+        - Name: StatusRefreshRateLimit
+          Priority: 8
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 60
+              EvaluationWindowSec: 300
+              ScopeDownStatement:
+                RegexMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  RegexString: "^/api/public/proof/status-view/order/refresh/?$"
+                  TextTransformations:
+                    - Priority: 0
+                      Type: URL_DECODE
+                    - Priority: 1
+                      Type: NORMALIZE_PATH
+                    - Priority: 2
+                      Type: LOWERCASE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: proof-status-refresh-rate-limit
+            SampledRequestsEnabled: false
+        - Name: StatusTaskRoutesRateLimit
+          Priority: 9
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 60
+              EvaluationWindowSec: 300
+              ScopeDownStatement:
+                RegexMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  RegexString: "^/api/public/proof/status-view/tasks/.*/?$"
+                  TextTransformations:
+                    - Priority: 0
+                      Type: URL_DECODE
+                    - Priority: 1
+                      Type: NORMALIZE_PATH
+                    - Priority: 2
+                      Type: LOWERCASE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: proof-status-tasks-rate-limit
+            SampledRequestsEnabled: false
+
   ProofWebOriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
@@ -691,9 +809,14 @@ Resources:
         SecurityHeadersConfig:
           ContentSecurityPolicy:
             ContentSecurityPolicy: !If
-              - CustomerRevisionUploadActive
-              - !Sub "default-src 'self'; connect-src 'self' https://${ProofAssetBucketName}.s3.${AWS::Region}.amazonaws.com https://lifters-integration-prod.s3.amazonaws.com https://lifterp-graphics-prod-c.s3.amazonaws.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
-              - "default-src 'self'; connect-src 'self' https://lifters-integration-prod.s3.amazonaws.com https://lifterp-graphics-prod-c.s3.amazonaws.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
+              - StatusReviewerCspPrepared
+              - !Sub
+                - "default-src 'self'; connect-src 'self' ${RevisionOrigin} https://lifters-integration-prod.s3.amazonaws.com https://lifterp-graphics-prod-c.s3.amazonaws.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://${StatusReviewerFirebaseProjectId}.firebaseapp.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self' https://apis.google.com"
+                - RevisionOrigin: !If [CustomerRevisionUploadActive, !Sub "https://${ProofAssetBucketName}.s3.${AWS::Region}.amazonaws.com", ""]
+              - !If
+                - CustomerRevisionUploadActive
+                - !Sub "default-src 'self'; connect-src 'self' https://${ProofAssetBucketName}.s3.${AWS::Region}.amazonaws.com https://lifters-integration-prod.s3.amazonaws.com https://lifterp-graphics-prod-c.s3.amazonaws.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
+                - "default-src 'self'; connect-src 'self' https://lifters-integration-prod.s3.amazonaws.com https://lifterp-graphics-prod-c.s3.amazonaws.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
             Override: true
           ContentTypeOptions:
             Override: true
@@ -1110,6 +1233,9 @@ Resources:
         S3Key: !If [HasPublicFunctionCodeOverride, !Ref PublicFunctionCodeS3Key, !Ref PublicLambdaCodeS3Key]
       Environment:
         Variables:
+          FIREBASE_PROJECT_ID: !If [PrepareStatusReviewerRuntime, !Ref StatusReviewerFirebaseProjectId, !Ref "AWS::NoValue"]
+          GOOGLE_CLOUD_PROJECT: !If [PrepareStatusReviewerRuntime, !Ref StatusReviewerFirebaseProjectId, !Ref "AWS::NoValue"]
+          GOOGLE_APPLICATION_CREDENTIALS: !If [PrepareStatusReviewerRuntime, "/var/task/proof-reviewer-external-account.json", !Ref "AWS::NoValue"]
           PATHFINDER_RUNTIME: lambda
           PATHFINDER_PROOF_ENVIRONMENT_NAME: !Ref EnvironmentName
           PATHFINDER_PROOF_STORAGE_DRIVER: dynamodb

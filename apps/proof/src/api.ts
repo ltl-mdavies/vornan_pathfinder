@@ -1,4 +1,6 @@
 import type { ProofActivity, ProofDetailedReport, ProofOrder, ProofParticipant, ProofVersion } from "./types";
+import { proofEntryState } from "./session-state";
+import { statusReviewerBearer, clearStatusReviewerSignIn } from "./status-reviewer-signin";
 
 export type ProofRevisionAssetState =
   | "initialized"
@@ -46,12 +48,20 @@ function cookieValue(name: string) {
 }
 
 async function api<T>(path: string, init?: RequestInit, csrf = false) {
-  const csrfToken = csrf ? cookieValue("vornan_proof_csrf") : null;
+  const entryParams = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+  const statusView = entryParams.get("statusView") === "1";
+  const statusOrder = entryParams.get("statusOrder") ?? "";
+  if (statusView && !/^A\d{7,8}$/.test(statusOrder)) throw new ProofApiError("This Status-to-Proof destination is invalid.", 409);
+  const csrfToken = csrf ? cookieValue(statusView ? "vornan_proof_status_csrf" : "vornan_proof_csrf") : null;
+  if (statusView) path = path.replace(/^\/api\/public\/proof(?=\/)/, "/api/public/proof/status-view");
+  const reviewerBearer = statusView ? await statusReviewerBearer() : null;
   const response = await fetch(path, {
     ...init,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(statusView ? { "X-Vornan-Proof-Status-Order": statusOrder } : {}),
+      ...(reviewerBearer ? { Authorization: `Bearer ${reviewerBearer}` } : {}),
       ...(csrfToken ? { "X-Vornan-Proof-Csrf": decodeURIComponent(csrfToken) } : {}),
       ...init?.headers
     }
@@ -71,13 +81,18 @@ export async function exchangeToken(token: string) {
 }
 
 export async function loadProofOrder() {
+  const entry = proofEntryState(window.location.hash);
+  if (window.location.hash.startsWith("#/status/") && entry.kind !== "status_handoff") {
+    throw new ProofApiError("This Status-to-Proof destination is invalid.", 409);
+  }
+  const query = entry.kind === "status_handoff" ? `?status_order=${encodeURIComponent(entry.orderNumber)}` : "";
   return api<{
     order: ProofOrder;
     participant: ProofParticipant | null;
     activity: ProofActivity;
     refresh_queued: boolean;
     session_expires_at: string;
-  }>("/api/public/proof/order");
+  }>(`/api/public/proof/order${query}`);
 }
 
 export interface SharedProofLink {
@@ -319,7 +334,12 @@ export async function loadDetailedReport(taskId: string, definitionId: string) {
 }
 
 export async function endSession() {
-  await api<null>("/api/public/proof/sessions/current", { method: "DELETE" }, true);
+  try { await api<null>("/api/public/proof/sessions/current", { method: "DELETE" }, true); }
+  finally { await clearStatusReviewerSignIn(); }
+}
+
+export async function authorizeStatusReviewer() {
+  return api<{ authorized: true; expires_at: string }>("/api/public/proof/reviewer-session", { method: "POST", body: "{}" }, true);
 }
 
 export async function extendSession() {

@@ -28,11 +28,20 @@ import {
 } from "./customer-capability-authority.js";
 import { proofSharingScopeAllowed } from "./share-policy.js";
 import { replaceProofGrant } from "./grant-store.js";
+import { validateStatusViewParent } from "./status-view-authority.js";
+import { verifyLtlDemoStatusReviewer, type VerifiedReviewerIdentity } from "./status-reviewer-authorization.js";
 
 export class ProofAccessDeniedError extends Error {
   constructor() {
     super("This proof access link is invalid or has expired.");
     this.name = "ProofAccessDeniedError";
+  }
+}
+
+export class ProofExistingSessionConflictError extends Error {
+  constructor() {
+    super("Your existing Proof session has been preserved. Status view-only access cannot replace it.");
+    this.name = "ProofExistingSessionConflictError";
   }
 }
 
@@ -188,7 +197,9 @@ export function publicProofGrant(grant: ProofAccessGrant, participantCount = 0):
   };
 }
 
-export async function createProofGrant(input: {
+type CreateProofGrantInput = {
+  status_origin?: ProofAccessGrant["status_origin"];
+  status_reviewer?: ProofAccessGrant["status_reviewer"];
   order_number: string;
   label?: string | null;
   scope?: ProofGrantScope;
@@ -196,9 +207,52 @@ export async function createProofGrant(input: {
   capability?: ProofGrantCapabilityBinding | null;
   now?: Date;
   audit_context?: ProofAuditContext;
+};
+
+export async function createProofGrant(input: CreateProofGrantInput) {
+  return createProofGrantInternal(input);
+}
+
+/** The only exception to general grant creation. Re-authorizes a live isolated
+ * view session and verified reviewer; callers cannot choose scope or identity. */
+export async function createStatusReviewerPromotion(input: {
+  rawSession: string;
+  csrf: string;
+  orderNumber: string;
+  bearer: string;
+  verifyToken: (token: string, checkRevoked: true) => Promise<VerifiedReviewerIdentity>;
+  readWorkspace?: ProofCustomerCapabilityAuthorityReader;
 }) {
+  const authorize = async () => {
+    if (process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO !== "true"
+      || process.env.PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN !== "true"
+      || !getProofRuntimeConfig().feature_flags.approve) throw new ProofAccessDeniedError();
+    const result = await validateProofSession(input.rawSession, new Date(), input.readWorkspace);
+    const { session, grant } = result;
+    if (!validateProofCsrf(session, input.csrf) || session.order_number !== input.orderNumber
+      || !grant.status_origin || grant.status_reviewer || grant.scope !== "view"
+      || grant.status_origin.customer_id !== "1249" || grant.capability?.access_mode !== "review"
+      || grant.capability.proof_customer_id !== "1249") throw new ProofAccessDeniedError();
+    return result;
+  };
+  await authorize();
+  const identity = await verifyLtlDemoStatusReviewer({ enabled: true, customerId: "1249",
+    bearer: input.bearer, verifyToken: input.verifyToken }).catch(() => { throw new ProofAccessDeniedError(); });
+  // Parent, capability, flags and session may have changed during provider I/O.
+  const { session, grant } = await authorize();
+  const expiresAt = new Date(Math.min(Date.parse(session.expires_at), Date.parse(identity.expires_at))).toISOString();
+  const created = await createProofGrantInternal({ order_number: session.order_number, scope: "review",
+    capability: grant.capability, status_origin: grant.status_origin,
+    status_reviewer: { ...identity, expires_at: expiresAt }, expires_at: expiresAt,
+    label: "Verified LTL Demo Status reviewer" }, statusReviewerPromotion);
+  return { created, identity };
+}
+
+// Module-private authority: never accepted from HTTP or ordinary grant callers.
+const statusReviewerPromotion = Symbol("verified-status-reviewer-promotion");
+async function createProofGrantInternal(input: CreateProofGrantInput, authority?: typeof statusReviewerPromotion) {
   const config = getProofRuntimeConfig();
-  if (!config.feature_flags.grant_creation) {
+  if (!config.feature_flags.grant_creation && authority !== statusReviewerPromotion) {
     throw new ProofAccessFeatureDisabledError("grant creation");
   }
   const orderNumber = normalizeLiftOrderNumber(input.order_number);
@@ -206,6 +260,7 @@ export async function createProofGrant(input: {
     throw new ProofGrantCohortDeniedError();
   }
   const requestedScope = input.scope ?? "view";
+  if (input.status_reviewer && (!input.status_origin || requestedScope !== "review")) throw new ProofAccessDeniedError();
   if (requestedScope !== "view" && requestedScope !== "review") {
     throw new ProofAccessValidationError("Proof access scope must be view or review.");
   }
@@ -257,6 +312,8 @@ export async function createProofGrant(input: {
   const boundedExpiresAt = deadline && expiresAt.getTime() > deadline.getTime() ? deadline : expiresAt;
   const rawToken = randomBytes(32).toString("base64url");
   const grant: ProofAccessGrant = {
+    ...(input.status_origin ? { status_origin: input.status_origin } : {}),
+    ...(input.status_reviewer ? { status_reviewer: input.status_reviewer } : {}),
     grant_id: `pgrant_${randomUUID()}`,
     order_number: orderNumber,
     scope: requestedScope,
@@ -271,6 +328,7 @@ export async function createProofGrant(input: {
     last_used_at: null,
     capability: input.capability ?? null
   };
+  if (!(await validateStatusViewParent(grant, now))) throw new ProofAccessDeniedError();
   await persistProofGrant(grant);
   await recordProofAuditEvent({
     action: "proof.grant_created",
@@ -379,7 +437,7 @@ export async function updateProofGrant(
   if (input.action === "revoke") {
     return { grant: await revokeProofGrant(grantId, now, auditContext), access_url: null };
   }
-  if (grant.kind === "delegated") {
+  if (grant.kind === "delegated" || grant.status_origin) {
     throw new ProofAccessValidationError("Shared links can only be revoked. Create a new link to change access.");
   }
   const deadline = activationDeadline(now);
@@ -439,7 +497,10 @@ export async function updateProofGrant(
 export async function exchangeProofToken(
   rawToken: string,
   now = new Date(),
-  readWorkspace?: ProofCustomerCapabilityAuthorityReader
+  readWorkspace?: ProofCustomerCapabilityAuthorityReader,
+  existingRawSession?: string,
+  expectedStatusView?: boolean,
+  expectedStatusOrder?: string
 ) {
   const config = getProofRuntimeConfig();
   if (!config.feature_flags.public_read) {
@@ -460,6 +521,18 @@ export async function exchangeProofToken(
   }
   if (!(await revalidateProofCustomerCapability(grant, readWorkspace))) {
     throw new ProofAccessDeniedError();
+  }
+  if (!(await validateStatusViewParent(grant, now))) throw new ProofAccessDeniedError();
+  if (expectedStatusView !== undefined && Boolean(grant.status_origin) !== expectedStatusView) throw new ProofAccessDeniedError();
+  if (expectedStatusView && expectedStatusOrder !== grant.order_number) throw new ProofAccessDeniedError();
+  // Do not consume the one-use link, end, or overwrite an existing reviewer session.
+  // A separate browser session channel is required before this feature is released.
+  if (grant.status_origin && existingRawSession) {
+    const existing = await getProofSessionByHash(hashSecret(existingRawSession));
+    if (existing && !existing.ended_at && Date.parse(existing.expires_at) > now.getTime()) {
+      const existingGrant = await getProofGrantById(existing.grant_id);
+      if (existingGrant && !existingGrant.status_origin) throw new ProofExistingSessionConflictError();
+    }
   }
   await validateDelegatedProofAuthority(grant, now, readWorkspace);
   const claimed = grant.kind === "delegated" ? grant : await claimProofGrant(grant, now.toISOString());
@@ -551,6 +624,7 @@ export async function validateProofSession(
   if (!(await revalidateProofCustomerCapability(grant, readWorkspace))) {
     throw new ProofAccessDeniedError();
   }
+  if (!(await validateStatusViewParent(grant, now))) throw new ProofAccessDeniedError();
   await validateDelegatedProofAuthority(grant, now, readWorkspace);
   return { session, grant };
 }

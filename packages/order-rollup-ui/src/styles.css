@@ -1271,7 +1271,9 @@
 
 .order-rollup__line-heading--public .order-rollup__status {
   justify-self: end;
-  white-space: nowrap;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
 }
 
 .order-rollup__line-chevron {
@@ -1356,6 +1358,27 @@
 .order-rollup__line-card--public .order-rollup__line-activity > section {
   border-color: #dde4d9;
   background: #fff;
+}
+
+/* Each creative gets the section's full width, rather than a narrow nested grid. */
+.order-rollup__line-card--public .order-rollup__proofs { grid-template-columns: minmax(0, 1fr); }
+.order-rollup__line-card--public .order-rollup__proof-card {
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  padding: 12px;
+}
+.order-rollup__line-card--public .order-rollup__proof-preview,
+.order-rollup__line-card--public .order-rollup__proof-empty { width: 96px; height: 96px; }
+.order-rollup__line-card--public .order-rollup__proof-card .order-rollup__proof-state { margin-top: 0; }
+.order-rollup__line-card--public .order-rollup__proof-card-copy > span:not(.order-rollup__proof-state) {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 420px) {
+  .order-rollup__line-card--public .order-rollup__proof-card { grid-template-columns: 72px minmax(0, 1fr); gap: 10px; padding: 10px; }
+  .order-rollup__line-card--public .order-rollup__proof-preview,
+  .order-rollup__line-card--public .order-rollup__proof-empty { width: 72px; height: 76px; }
 }
 
 @keyframes order-rollup-proof-spinner {

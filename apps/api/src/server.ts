@@ -1,4 +1,6 @@
 import {configuredCatalogRecordRouter} from './catalog-records/configured-router.js';
+import { statusHandoffUrl } from "./proof/status-handoff.js";
+import { createStatusProofView } from "./proof/status-view-service.js";
 import { validateEcommSubmitIdentity } from './json-intake/ecomm-submit-validation.js';
 import { preflightSubmitDocuments } from "./json-intake/prepaid-submit.js";
 import { getIntakeVisibilityConfig } from "./intake-visibility-config.js";
@@ -2111,7 +2113,7 @@ async function buildInternalOrderSnapshotForJob(
 export function applyPublicProofVisibility(
   snapshot: PublicOrderStatusSnapshot,
   proofVisibility: StatusProofVisibility,
-  options: { include_transient_proof_assets?: boolean } = {}
+  options: { include_transient_proof_assets?: boolean; verified_handoff_customer_id?: string } = {}
 ): PublicOrderStatusSnapshot {
   const showProofStatus = proofVisibility !== "off";
   const orderCancelled = snapshot.lifecycle?.state === "cancelled";
@@ -2142,7 +2144,14 @@ export function applyPublicProofVisibility(
           ...snapshot.proof_summary,
           review_required: orderCancelled ? false : snapshot.proof_summary.review_required,
           access_mode: orderCancelled ? "status_only" : proofVisibility,
-          review_url: null
+          review_url: statusHandoffUrl({
+            enabled: process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO === "true",
+            customerId: options.verified_handoff_customer_id ?? "",
+            orderNumber: snapshot.order_number, pending: snapshot.proof_summary.pending,
+            reviewRequired: snapshot.proof_summary.review_required,
+            healthy: snapshot.proof_summary.health === "active", cancelled: orderCancelled,
+            visibility: proofVisibility
+          })
         }
       : null,
     lines,
@@ -4224,6 +4233,19 @@ app.get("/public/status/email-capability", (_req, res) => {
   });
 });
 
+app.post("/public/status/:token/proof-view", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  // Bearer must be explicit; never rely on ambient cookies for this operation.
+  if (req.get("origin") !== "https://status.vornan.co" || !req.is("application/json")) {
+    res.status(403).json({error:"Proof viewing access is unavailable."}); return;
+  }
+  if (isPublicStatusRequestRateLimited(req, hashStatusToken(req.params.token), [String(req.body?.order_number ?? "")])) {
+    res.status(429).json({error:"Please wait before opening Proof again."}); return;
+  }
+  try { res.status(201).json(await createStatusProofView(req.params.token,req.body?.order_number)); }
+  catch { res.status(403).json({error:"Proof viewing access is unavailable. Please contact Vornan."}); }
+});
+
 app.get("/public/status/:token", async (req, res) => {
   try {
     const lookup = await activePublicStatusToken(req.params.token);
@@ -4244,7 +4266,9 @@ app.get("/public/status/:token", async (req, res) => {
         try {
           const customer = await findLiftCustomer(order.customer_id);
           const workspace = await getOrCreateWorkspace(customer);
-          return applyPublicProofVisibility(snapshot, workspace.status_access_policy.proof_visibility);
+          return applyPublicProofVisibility(snapshot, workspace.status_access_policy.proof_visibility, {
+            verified_handoff_customer_id: String(order.customer_id)
+          });
         } catch {
           return applyPublicProofVisibility(snapshot, "off");
         }
@@ -4290,7 +4314,18 @@ app.post("/public/status/:token/refresh", async (req, res) => {
     const refreshResults = (
       await Promise.all(lookup.orders.map((order) => refreshPublicStatusOrder(order)))
     ).filter((result): result is NonNullable<typeof result> => result != null);
-    const snapshots = refreshResults.map((result) => result.snapshot);
+    const snapshots = refreshResults.map((result) => {
+      const snapshot = result.snapshot;
+      const binding = lookup.orders.find(order => order.order_key === snapshot.order_key && order.order_number === snapshot.order_number);
+      if (!snapshot.proof_summary) return snapshot;
+      return {...snapshot, proof_summary: {...snapshot.proof_summary, review_url: statusHandoffUrl({
+        enabled: process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO === "true",
+        customerId: binding?.customer_id ?? "", orderNumber:snapshot.order_number,
+        pending:snapshot.proof_summary.pending, reviewRequired:snapshot.proof_summary.review_required,
+        healthy:snapshot.proof_summary.health === "active",cancelled:snapshot.lifecycle?.state === "cancelled",
+        visibility:snapshot.proof_visibility ?? "off"
+      })}};
+    });
 
     if (!snapshots.length) {
       res.status(404).json({ error: "Order status snapshots were not found." });

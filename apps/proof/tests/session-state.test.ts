@@ -11,6 +11,25 @@ import {
 } from "../src/session-state.ts";
 import { watchProofAccessNavigation } from "../src/session-state.ts";
 
+test("Status destinations are order-bound navigation, never grant tokens", () => {
+  assert.deepEqual(proofEntryState("#/status/A0233367"), {kind:"status_handoff",orderNumber:"A0233367"});
+  for(const hash of ["#/status/", "#/status/A0233367?scope=review", "#/status/other", "#/status/A0233367/extra"]) {
+    assert.deepEqual(proofEntryState(hash), {kind:"link_unavailable"});
+  }
+});
+
+test("Status navigation reloads once so the prior order workspace cannot survive the handoff", () => {
+  let listener: (() => void) | undefined;
+  let reloads = 0;
+  watchProofAccessNavigation({
+    location: {hash:"#/status/A0233367",reload:()=>{reloads += 1;}},
+    addEventListener: (_type, callback) => {listener = callback;},
+    removeEventListener: () => undefined
+  });
+  listener!(); listener!();
+  assert.equal(reloads,1);
+});
+
 test("exchange errors preserve their stage without retaining credentials or claiming transient failure is expiry", () => {
   const rejected = new ProofAccessExchangeError(true);
   assert.equal(rejected.name, "ProofAccessExchangeError");

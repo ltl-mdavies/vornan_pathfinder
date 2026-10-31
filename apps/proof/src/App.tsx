@@ -29,6 +29,9 @@ import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSes
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import { highResolutionFormatDiffers } from "./proof-file-format";
 import { ShareOrder } from "./share-order";
+import { authorizeStatusReviewer } from "./api";
+import { signInStatusReviewer, statusReviewerSignInConfigured, clearStatusReviewerSignIn } from "./status-reviewer-signin";
+import { StatusReviewerAccess } from "./status-reviewer-access";
 import { ReviewerSuccessToast } from "./reviewer-success-toast";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
@@ -71,10 +74,10 @@ import {
   type SavedQuantityDraft
 } from "./quantity-review-state";
 import { summarizeQuantityAssignment } from "./quantity-assignment";
-import { createFailClosedSessionTerminator, focusProofTerminalState, ProofAccessExchangeError, proofEntryState, sessionExpiryDelay, sessionSecondsRemaining, sessionWarningVisible } from "./session-state";
+import { createFailClosedSessionTerminator, focusProofTerminalState, ProofAccessExchangeError, ProofStatusSessionConflictError, proofEntryState, sessionExpiryDelay, sessionSecondsRemaining, sessionWarningVisible } from "./session-state";
 import type { ProofActivity, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
 
-type TerminalState = "link_unavailable" | "session_ended";
+type TerminalState = "link_unavailable" | "session_ended" | "session_conflict";
 type LoadState =
   | { status: "loading" }
   | { status: "ready"; order: ProofOrder; participant: ProofParticipant | null; activity: ProofActivity; session_expires_at: string }
@@ -221,6 +224,9 @@ async function bootstrap() {
       await exchangeToken(entry.token);
     } catch (error) {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/link-unavailable`);
+      if (error instanceof ProofApiError && error.code === "EXISTING_PROOF_SESSION_PRESERVED") {
+        throw new ProofStatusSessionConflictError();
+      }
       throw new ProofAccessExchangeError(
         error instanceof ProofApiError && [401, 403, 404, 410].includes(error.status)
       );
@@ -1184,6 +1190,8 @@ export function App() {
   const [clockMs, setClockMs] = useState(() => Date.now());
   const [sessionExtending, setSessionExtending] = useState(false);
   const [sessionExtendError, setSessionExtendError] = useState<string | null>(null);
+  const [reviewerSigningIn, setReviewerSigningIn] = useState(false);
+  const [reviewerSignInError, setReviewerSignInError] = useState<string | null>(null);
   const [historyByTask, setHistoryByTask] = useState<Record<string, HistoryState>>({});
   const dialogElement = useRef<HTMLDialogElement>(null);
   const identityDialogElement = useRef<HTMLDialogElement>(null);
@@ -1262,6 +1270,22 @@ export function App() {
       return previous ? replacementProofTaskId(order, previous) : order.tasks[0]?.task_id ?? null;
     });
     return order;
+  }
+
+  async function verifyStatusReviewer() {
+    if (reviewerSigningIn) return;
+    setReviewerSigningIn(true); setReviewerSignInError(null);
+    try {
+      await signInStatusReviewer();
+      // Never authorize if the user ended/expired this workspace while the popup was open.
+      if (!canApplyProofResponse()) { await clearStatusReviewerSignIn(); return; }
+      await authorizeStatusReviewer();
+      if (!canApplyProofResponse()) { await endSession().catch(() => undefined); return; }
+      applyProofLoad(await loadProofOrder());
+    } catch {
+      await clearStatusReviewerSignIn().catch(() => undefined);
+      setReviewerSignInError("Reviewer access couldn’t be verified. You can still view the artwork.");
+    } finally { setReviewerSigningIn(false); }
   }
 
   function setBackgroundRefresh(value: boolean) {
@@ -1371,6 +1395,10 @@ export function App() {
       },
       (error) => {
         if (sessionTerminator.current) return;
+        if (error instanceof ProofStatusSessionConflictError) {
+          setLoadState({ status: "error", kind: "session_conflict", message: error.message });
+          return;
+        }
         if (error instanceof ProofAccessExchangeError) {
           setLoadState({ status: "error", kind: "link_unavailable", message: error.message });
           return;
@@ -2013,6 +2041,7 @@ export function App() {
 
   if (loadState.status === "error") {
     const sessionEnded = loadState.kind === "session_ended";
+    const sessionConflict = loadState.kind === "session_conflict";
     return (
       <main
         ref={terminalStateElement}
@@ -2023,10 +2052,11 @@ export function App() {
         <img src="/brand/vornan-wordmark.svg" alt="Vornan" />
         <div className="state-icon"><AlertTriangle aria-hidden="true" /></div>
         <div role="alert" aria-atomic="true">
-          <h1 id="proof-terminal-heading">{sessionEnded ? "Your secure session has ended" : "This proof link isn’t available"}</h1>
+          <h1 id="proof-terminal-heading">{sessionConflict ? "Your existing Proof session is preserved" : sessionEnded ? "Your secure session has ended" : "This proof link isn’t available"}</h1>
           <p>{loadState.message}</p>
         </div>
-        <p className="support-copy">Ask your Vornan contact for a new link if you still need access. No proof information remains visible in this browser.</p>
+        {sessionConflict ? <button className="button secondary" type="button" onClick={() => window.history.back()}>Go back</button>
+          : <p className="support-copy">Ask your Vornan contact for a new link if you still need access. No proof information remains visible in this browser.</p>}
       </main>
     );
   }
@@ -2040,10 +2070,10 @@ export function App() {
           <strong>Proof</strong>
         </div>
         <div className="session-actions">
-          <button ref={reviewerButton} className="reviewer-button" type="button" onClick={(event) => openIdentityDialog(event.currentTarget)}>
+          {order?.access.status_entry ? <StatusReviewerAccess verified={Boolean(order.access.reviewer_verified)} available={Boolean(order.access.reviewer_signin_available && statusReviewerSignInConfigured())} busy={reviewerSigningIn} error={reviewerSignInError} onSignIn={() => void verifyStatusReviewer()} /> : <button ref={reviewerButton} className="reviewer-button" type="button" onClick={(event) => openIdentityDialog(event.currentTarget)}>
             <UserRound aria-hidden="true" />
             <span>{participant?.display_name ?? "Identify reviewer"}</span>
-          </button>
+          </button>}
           <button
             className="icon-button"
             type="button"
@@ -2056,7 +2086,7 @@ export function App() {
         </div>
       </header>
 
-      {showSessionWarning ? (
+      {showSessionWarning && !order?.access.status_entry ? (
         <aside className="session-warning" role="alert" aria-live="assertive">
           <span className="session-countdown" aria-label={`${sessionRemaining} seconds remaining`}><Clock3 aria-hidden="true" />0:{String(sessionRemaining).padStart(2, "0")}</span>
           <span><strong>Your secure review session is ending soon.</strong><small>Continue to keep this order open without losing your place.</small></span>
@@ -2222,7 +2252,7 @@ export function App() {
                   <button className="button secondary compact" type="button" onClick={(event) => openDetailDialog("history", selectedTask.task_id, event)}>
                     <History aria-hidden="true" /> File history
                   </button>
-                  <DetailedReportButton task={selectedTask} version={selectedVersion} />
+                  {!order?.access.status_entry && <DetailedReportButton task={selectedTask} version={selectedVersion} />}
                   {selectedAsset.download && <a className="button secondary" href={selectedAsset.download} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Download</a>}
                   {selectedAsset.open && <ProofOpenTabLink href={selectedAsset.open} />}
                 </div>
@@ -2250,7 +2280,7 @@ export function App() {
                   <div className="preview-stage"><ProofPreview version={selectedVersion} refreshing={artworkRefreshing} /></div>
                 </div>
               </div>
-              <ActionTransport
+              {!order?.access.status_view_only && <ActionTransport
                 key={selectedGroup?.group_id ?? selectedTask.task_id}
                 tasks={selectedGroup?.tasks ?? [selectedTask]}
                 selectedTaskId={selectedTask.task_id}
@@ -2273,7 +2303,7 @@ export function App() {
                 onApproveSingle={approveSingleProof}
                 onRequestChanges={requestSingleProofChanges}
                 onRequestRevision={(task) => setRevisionUploadTaskId(task.task_id)}
-              />
+              />}
             </>
           ) : (
             <div className="preview-empty">
@@ -2343,7 +2373,7 @@ export function App() {
                   <button type="button" onClick={(event) => openDetailDialog("history", task.task_id, event)}><History aria-hidden="true" /> History</button>
                   {asset.open ? <a href={asset.open} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" /> Open full size</a> : null}
                 </div>
-                <ActionTransport
+                {!order?.access.status_view_only && <ActionTransport
                   tasks={group.tasks}
                   selectedTaskId={task.task_id}
                   stagedTaskIds={stagedApprovals[group.group_id] ?? []}
@@ -2366,7 +2396,7 @@ export function App() {
                   onRequestChanges={requestSingleProofChanges}
                   onRequestRevision={(task) => setRevisionUploadTaskId(task.task_id)}
                   mobile
-                />
+                />}
               </article>
             );
           })}
@@ -2443,7 +2473,7 @@ export function App() {
                   <time>{formatDate(comment.created_at, true)}</time>
                 </article>
               )) : <p className="muted">No Prepress team feedback has been recorded for this version.</p>}
-              {dialogTask.feedback_required ? (
+              {dialogTask.feedback_required && !order?.access.status_view_only ? (
                 <div className={`feedback-ack ${dialogTask.feedback_acknowledged ? "complete" : ""}`}>
                   <div>
                     <CheckCircle2 aria-hidden="true" />

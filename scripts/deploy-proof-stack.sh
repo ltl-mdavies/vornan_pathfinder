@@ -23,6 +23,7 @@ if [[ "${public_read_enabled}" == "true" && -z "${edge_shared_secret}" ]]; then
 fi
 
 node scripts/proof-deploy-preflight.mjs
+node scripts/proof-reviewer-runtime.mjs --check-env
 scripts/package-proof-lambdas.sh
 aws s3 cp "${zip_path}" "s3://${artifact_bucket}/${artifact_key}"
 
@@ -33,6 +34,8 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \
     EnvironmentName="${environment_name}" \
+    StatusReviewerRuntimePrepared="${PATHFINDER_PROOF_STATUS_REVIEWER_RUNTIME_PREPARED:-false}" \
+    StatusReviewerFirebaseProjectId="${PATHFINDER_PROOF_STATUS_REVIEWER_FIREBASE_PROJECT_ID:-}" \
     LiftReadEnvironment="${lift_read_environment}" \
     LiftOrderReadUrl="${lift_order_read_url}" \
     LiftProofReportReadUrl="${lift_report_read_url}" \

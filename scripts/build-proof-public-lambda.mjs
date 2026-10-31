@@ -1,11 +1,13 @@
 import { build } from "esbuild";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { validateProofReviewerDescriptor } from './proof-reviewer-runtime.mjs';
 import { dirname, resolve } from "node:path";
 
 const outdir = resolve("outputs/proof-lambdas");
 const publicOutfile = resolve(outdir, "public-lambda.mjs");
 const syncOutfile = resolve(outdir, "sync-lambda.mjs");
 const operatorOutfile = resolve(outdir, "operator-lambda.mjs");
+const reviewerDescriptor = validateProofReviewerDescriptor(JSON.parse(await readFile('infra/google/proof-reviewer-external-account.json', 'utf8')));
 
 await mkdir(dirname(publicOutfile), { recursive: true });
 const shared = {
@@ -25,4 +27,5 @@ await Promise.all([
   build({ ...shared, entryPoints: ["apps/api/src/proof-operator-lambda.ts"], outfile: operatorOutfile })
 ]);
 await writeFile(resolve(outdir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`);
+await writeFile(resolve(outdir, 'proof-reviewer-external-account.json'), `${JSON.stringify(reviewerDescriptor, null, 2)}\n`);
 console.log(`Vornan Proof Lambda artifacts written to ${outdir}`);

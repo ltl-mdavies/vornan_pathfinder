@@ -1,0 +1,25 @@
+import {execFileSync} from 'node:child_process';
+import {readFile,writeFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {createHash} from 'node:crypto';
+const root=resolve('outputs/proof-runtime-review-20261031');
+const manifest=JSON.parse(await readFile(resolve(root,'manifest.json'),'utf8'));
+const name=`proof-runtime-review-${manifest.candidate.sha256.slice(0,16)}`;
+const aws=args=>JSON.parse(execFileSync('aws',[...args,'--region','us-east-1','--output','json'],{encoding:'utf8'}));
+const cs=aws(['cloudformation','describe-change-set','--stack-name','vornan-proof-dev','--change-set-name',name]);
+const allowed=new Set(['ProofManagedWebAcl','ProofPublicFunction','ProofPublicIntegration','ProofWebDistribution','ProofWebResponseHeadersPolicy']);
+const changes=cs.Changes.map(c=>c.ResourceChange);
+if(cs.Status!=='CREATE_COMPLETE'||cs.ExecutionStatus!=='AVAILABLE'||changes.some(c=>!allowed.has(c.LogicalResourceId)||c.Action!=='Modify'||c.Replacement!=='False'))throw Error('Review gate failed');
+const stack=aws(['cloudformation','describe-stacks','--stack-name','vornan-proof-dev']).Stacks[0];
+if(stack.LastUpdatedTime!==manifest.stackUpdated||stack.StackStatus!=='UPDATE_COMPLETE')throw Error('Stack changed during review');
+const evidence={name,status:cs.Status,executionStatus:cs.ExecutionStatus,executed:false,reviewedAt:new Date().toISOString(),changes:changes.map(c=>({id:c.LogicalResourceId,type:c.ResourceType,action:c.Action,replacement:c.Replacement,details:c.Details})),
+  validationEvents:'PENDING: installed AWS CLI lacks describe-events; isolated CLI requested',baseline:manifest.base,stackUnchanged:true,activationHeld:true};
+const path=resolve(root,'change-set-review.json');
+await writeFile(path,JSON.stringify(evidence,null,2)+'\n',{mode:0o600});
+const checksum=createHash('sha256').update(await readFile(path)).digest('base64');
+const key=`${manifest.prefix}/change-set-review.json`;
+const put=aws(['s3api','put-object','--bucket',manifest.bucket,'--key',key,'--body',path,'--server-side-encryption','AES256','--checksum-sha256',checksum,'--if-none-match','*']);
+const head=aws(['s3api','head-object','--bucket',manifest.bucket,'--key',key,'--version-id',put.VersionId,'--checksum-mode','ENABLED']);
+if(head.ChecksumSHA256!==checksum)throw Error('Evidence readback failed');
+await writeFile(resolve(root,'review-archive-receipt.json'),JSON.stringify({key,versionId:put.VersionId,checksumSHA256:checksum})+'\n',{mode:0o600});
+console.log(JSON.stringify({reviewedChanges:changes.length,noReplacements:true,noDeletes:true,stackUnchanged:true,executed:false,validationEventsPending:true}));

@@ -18,7 +18,7 @@ export function proofShareContext(session: ProofAccessSession) {
 }
 
 export function proofShareManagementAllowed(grant: ProofAccessGrant, now = new Date()) {
-  return proofSharingScopeAllowed(grant) && !grant.kind && !grant.parent_grant_id &&
+  return proofSharingScopeAllowed(grant) && !grant.kind && !grant.parent_grant_id && !grant.status_origin &&
     grant.scope === "review" && grant.capability?.access_mode === "review" &&
     grant.status === "active" && !grant.revoked_at && Date.parse(grant.expires_at) > now.getTime();
 }
