@@ -41,3 +41,11 @@ test("missing, stale, mismatched, unhealthy, and failed sources suppress summary
     { proofPayload: { rowset: [{ ...proofPayload.rowset[0], ORDER_NUMBER: "A0233367" }] } }
   ]) assert.equal(freshStatusProofSummary({ ...base, ...patch }), null);
 });
+
+test("empty or unusable fresh proof rows cannot revive cached pending tasks", () => {
+  for (const rowset of [[], [{ ORDER_NUMBER: "A0234529", ORDER_LINE_ID: 100, LINE_NUMBER: 1 }]]) {
+    const summary = freshStatusProofSummary({ ...base, proofPayload: { rowset } });
+    assert.equal(summary?.pending ?? 0, 0);
+    assert.equal(summary?.review_required ?? false, false);
+  }
+});
