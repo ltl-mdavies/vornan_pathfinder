@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, CheckCircle2, ChevronDown, FileImage, LoaderCircle } from "lucide-react";
 import { isStatusProofAsset, retryStatusProofAsset, useDocumentLoadingDelay, useProofAssetRecovery } from "./proof-asset-recovery.js";
 import {
@@ -208,7 +208,21 @@ export function RecoveringThumbnail({ url, compact = false }: { url: string; com
   return <VisibleThumbnail key={url} url={url} compact={compact} />;
 }
 
+const RowThumbnailAdmission = createContext<{ url: string | null; admitted: boolean; admit: () => void; image: ReturnType<typeof useProofAssetRecovery> } | null>(null);
+
+export function SharedRowThumbnail({ url, children }: { url: string | null; children: ReactNode }) {
+  return <SharedRowThumbnailState key={url ?? "no-thumbnail"} url={url}>{children}</SharedRowThumbnailState>;
+}
+
+function SharedRowThumbnailState({ url, children }: { url: string | null; children: ReactNode }) {
+  const [admitted, setAdmitted] = useState(false);
+  const image = useProofAssetRecovery(url, admitted, 20_000);
+  return <RowThumbnailAdmission.Provider value={{ url, admitted, admit: () => setAdmitted(true), image }}>{children}</RowThumbnailAdmission.Provider>;
+}
+
 function VisibleThumbnail({ url, compact = false }: { url: string; compact?: boolean }) {
+  const row = useContext(RowThumbnailAdmission);
+  const shared = row?.url === url ? row : null;
   const frame = useRef<HTMLSpanElement>(null);
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -220,11 +234,18 @@ function VisibleThumbnail({ url, compact = false }: { url: string; compact?: boo
     observer.observe(frame.current);
     return () => observer.disconnect();
   }, [url]);
-  const image = useProofAssetRecovery(url, visible, 20_000);
+  useEffect(() => {
+    if (visible && shared && !shared.admitted) shared.admit();
+  }, [visible, shared]);
+  // Both placements begin together when this row is admitted. In particular,
+  // the copy inside closed details must not wait for its own intersection.
+  const admitted = shared ? shared.admitted : visible;
+  const ownImage = useProofAssetRecovery(url, !shared && admitted, 20_000);
+  const image = shared?.image ?? ownImage;
   if (!isStatusProofAsset(url)) return <img src={url} alt="" loading="lazy" />;
   const failed = image.state === "failed" && !image.retrying;
   return <span ref={frame} className="order-rollup__recovering-thumbnail">
-    {visible ? <img key={image.src} src={image.src} alt="" decoding="async" onLoad={image.onLoad} onError={image.onError}
+    {admitted ? <img key={image.src} src={image.src} alt="" decoding="async" onLoad={image.onLoad} onError={image.onError}
       style={{ opacity: image.state === "ready" ? 1 : 0 }} /> : null}
     {image.state !== "ready" ? <span className="order-rollup__image-note" role="status"
       title={failed ? "Preview unavailable. Open the creative to retry." : "Loading current artwork"}>
@@ -846,7 +867,9 @@ function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAs
   const description = line.description?.trim();
   const distinctDescription = description && description.replace(/\s+/g, " ").toLowerCase() !== lineTitle.trim().replace(/\s+/g, " ").toLowerCase() ? description : null;
   if (publicLayout) {
+    const sharedThumbnailUrl = allowProofAssetLinks ? safeProofAssetUrl(line.proofs[0]?.proof_link_low) : null;
     return (
+      <SharedRowThumbnail key={sharedThumbnailUrl ?? "no-thumbnail"} url={sharedThumbnailUrl}>
       <details
         className={`order-rollup__line-card order-rollup__line-card--public${line.cancelled ? " is-cancelled" : ""}`}
         open={expanded}
@@ -891,6 +914,7 @@ function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAs
           </div>
         </div>
       </details>
+      </SharedRowThumbnail>
     );
   }
   return (

@@ -2,8 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { OrderRollup, safeProofAssetUrl, SlowDocumentNotice, isCurrentDocumentFrame } from "@pathfinder/order-rollup-ui";
+import { OrderRollup, safeProofAssetUrl, SlowDocumentNotice, isCurrentDocumentFrame, SharedRowThumbnail, RecoveringThumbnail } from "@pathfinder/order-rollup-ui";
 import type { OrderRollupSnapshot } from "@pathfinder/order-rollup";
+
+test("paired row thumbnails defer both placements until client viewport admission", () => {
+  const url = "https://api.example/public/status/synthetic/proof-asset?asset_kind=thumbnail";
+  const markup = renderToStaticMarkup(<SharedRowThumbnail url={url}>
+    <details><summary><RecoveringThumbnail compact url={url} /></summary>
+      <RecoveringThumbnail url={url} />
+    </details>
+  </SharedRowThumbnail>);
+  assert.doesNotMatch(markup, /<img|rel="preload"/, "off-screen rows must not eagerly request assets");
+  assert.equal((markup.match(/Loading current artwork/g) ?? []).length, 2);
+});
 
 test("document completion only accepts the current connected iframe", () => {
   const current = { isConnected: true };

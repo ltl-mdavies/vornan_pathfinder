@@ -1,0 +1,38 @@
+Status shared row / expanded Creative thumbnail follow-up — local only
+
+Cause: two independent viewport observers withheld the expanded image until
+its closed details element was opened. Identical URLs did not prevent that delay.
+
+Fix: a row-scoped provider admits both copies of the first low-resolution asset
+together and shares recovery state/nonce. It is keyed by full asset URL, including
+access/order/version identity. There is no cross-row or global cache. Additional
+creatives retain independent visibility admission. High-resolution/modal behavior
+and API configuration are unchanged. Direct non-resolver URLs retain old behavior.
+
+Chrome local synthetic verification (150ms image response, Cache-Control: no-store):
+- Seven admitted rows: seven requests, fourteen complete images while closed.
+- Expand first row: seven requests still; both images already complete.
+- Rows outside viewport admission: no img elements / no image requests.
+- Two failing files: nine total requests (seven initial + two shared retries).
+  Persistent failure settled in both copies; transient failure recovered in both.
+- URL revision change: six visible rows generated six new requests, not twelve.
+  All twelve images loaded revision 1 while details stayed closed; next row deferred.
+
+Status production build passed. Web suite: 309/309. Focused Status/UI: 49/49.
+An initial ad-hoc root-level combined test invocation reported three React-not-defined
+errors in WorkspaceLoading; the configured web workspace test command passed.
+This is local request-reuse evidence, not a measurement of production Lift latency.
+No deployment, API mutation, access creation or CVO activation performed.
+
+Full-page follow-up: actual candidate OrderRollup imported into the local 30-line
+Status QA page. Synthetic HTTPS artwork transport only; production URL protections
+unchanged. Six admitted rows issued six requests and had twelve complete images
+while closed. First row contained an extra creative: it was deferred until expansion,
+which added exactly one request (total seven). Original first image was already
+complete. No iframes were mounted. Screenshot: /private/tmp/status-shared-thumbnail-full-layout.png.
+Current origin/main ab56517b409379e1a67b8ebe03e3add25a0469c9 has identical baseline
+source for packages/order-rollup-ui, apps/status, and the relevant UI test file.
+The multi-creative card layout is compact; no CSS/layout changes in this fix.
+
+Release remaining: CI/release packaging and user deployment approval. UX agrees
+with behavior, not deployment authority. No production latency claim is made.
