@@ -1274,11 +1274,11 @@ export function App() {
     return order;
   }
 
-  async function verifyStatusReviewer() {
+  async function verifyStatusReviewer(options?: import("./reviewer-account-hint").ReviewerSignInOptions) {
     if (reviewerSigningIn) return;
     setReviewerSigningIn(true); setReviewerSignInError(null);
     try {
-      await signInStatusReviewer(setReviewerStage);
+      await signInStatusReviewer(setReviewerStage, options);
       // Never authorize if the user ended/expired this workspace while the popup was open.
       if (!canApplyProofResponse()) { await clearStatusReviewerSignIn(); return; }
       setReviewerStage("authorizing");
@@ -2075,7 +2075,7 @@ export function App() {
           <strong>Proof</strong>
         </div>
         <div className="session-actions">
-          {order?.access.status_entry ? <StatusReviewerAccess verified={Boolean(order.access.reviewer_verified)} available={Boolean(order.access.reviewer_signin_available && statusReviewerSignInConfigured())} busy={reviewerSigningIn} stage={reviewerStage} error={reviewerSignInError} onSignIn={() => void verifyStatusReviewer()} /> : <button ref={reviewerButton} className="reviewer-button" type="button" onClick={(event) => openIdentityDialog(event.currentTarget)}>
+          {order?.access.status_entry ? <StatusReviewerAccess verified={Boolean(order.access.reviewer_verified)} available={Boolean(order.access.reviewer_signin_available && statusReviewerSignInConfigured())} busy={reviewerSigningIn} stage={reviewerStage} error={reviewerSignInError} onSignIn={options => void verifyStatusReviewer(options)} /> : <button ref={reviewerButton} className="reviewer-button" type="button" onClick={(event) => openIdentityDialog(event.currentTarget)}>
             <UserRound aria-hidden="true" />
             <span>{participant?.display_name ?? "Identify reviewer"}</span>
           </button>}
