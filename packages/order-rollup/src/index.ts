@@ -477,7 +477,7 @@ export interface OrderRollupProof {
 }
 
 export interface OrderRollupProofSummary {
-  source: "proof_cache";
+  source: "proof_cache" | "lift_report";
   health: "active" | "complete" | "cancelled" | "missing" | "stale" | "error";
   pending: number;
   regenerating: number;

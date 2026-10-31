@@ -1,5 +1,6 @@
 import {configuredCatalogRecordRouter} from './catalog-records/configured-router.js';
 import { statusHandoffUrl } from "./proof/status-handoff.js";
+import { freshStatusProofSummary } from "./proof/status-fresh-summary.js";
 import { createStatusProofView } from "./proof/status-view-service.js";
 import { validateEcommSubmitIdentity } from './json-intake/ecomm-submit-validation.js';
 import { preflightSubmitDocuments } from "./json-intake/prepaid-submit.js";
@@ -1516,6 +1517,7 @@ export function buildOrderSnapshot(args: {
   orderLookup: Awaited<ReturnType<typeof fetchLiftOrderLookup>> | null;
   proofReport: Awaited<ReturnType<typeof fetchLiftProofReport>> | null;
   proofOrder?: ProofOrder | null;
+  freshProofSummary?: import("@pathfinder/order-rollup").OrderRollupProofSummary | null;
   packageDetails: Awaited<ReturnType<typeof fetchLiftPackageDetails>> | null;
   shippingReport?: Awaited<ReturnType<typeof fetchLiftShippingReport>> | null;
   sourceStatus?: Partial<Record<OrderRollupDataSource, OrderRollupSourceStatus>>;
@@ -1677,7 +1679,7 @@ export function buildOrderSnapshot(args: {
       }
     : liveOrder?.status ?? null;
   const projectedProofs = proofs.map((proof) => effectiveProofs.get(proof) ?? proof);
-  const proofSummary = proofProjection?.summary
+  const proofSummary = args.freshProofSummary !== undefined ? args.freshProofSummary : (proofProjection?.summary
     ? (() => {
         const summary = { ...proofProjection.summary };
         const bucket = (state: unknown) => {
@@ -1698,7 +1700,7 @@ export function buildOrderSnapshot(args: {
         summary.review_required = summary.pending > 0;
         return summary;
       })()
-    : null;
+    : null);
 
   return {
     snapshot_id: `snapshot-${args.job.job_id}`,
@@ -2096,6 +2098,12 @@ async function buildInternalOrderSnapshotForJob(
       orderLookup,
       proofReport,
       proofOrder: proofOrderForSnapshot,
+      freshProofSummary: options.preferFreshProofReport ? freshStatusProofSummary({
+        orderNumber: context.orderNumber, cached: proofOrder,
+        orderPayload: orderLookup?.payload, proofPayload: proofReport?.payload,
+        orderOk: orderLookup?.ok === true, proofOk: proofReport?.ok === true,
+        now: new Date().toISOString()
+      }) : undefined,
       packageDetails,
       shippingReport,
       sourceStatus: {
