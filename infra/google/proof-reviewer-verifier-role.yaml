@@ -1,0 +1,5 @@
+title: Proof Reviewer Verifier
+description: Read Firebase user state solely for revoked or disabled reviewer token checks. No user or configuration writes.
+stage: GA
+includedPermissions:
+  - firebaseauth.users.get

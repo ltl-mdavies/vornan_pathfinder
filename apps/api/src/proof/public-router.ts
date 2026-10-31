@@ -1,16 +1,19 @@
 import { Router, type Request } from "express";
+import { statusHandoffMatches } from "./status-handoff.js";
 import { toPublicProofOrder, toPublicProofTaskHistory } from "@pathfinder/proof-domain";
 import {
   endProofSession,
+  createStatusReviewerPromotion,
   activationDeadline,
   exchangeProofToken,
   extendProofSession,
   getProofSessionForLogout,
   ProofAccessDeniedError,
+  ProofExistingSessionConflictError,
   ProofAccessFeatureDisabledError,
   ProofAccessValidationError,
   validateProofCsrf,
-  validateProofSession
+  validateProofSession as validateSessionAuthority
 } from "./access-service.js";
 import { assertLiftProofWritesDisabled, getProofRuntimeConfig } from "./runtime-config.js";
 import { getProofAssetUploadRuntimeConfig, proofAssetUploadAllowed } from "./asset-upload-config.js";
@@ -38,6 +41,7 @@ import { customerAllocationService, customerAllocationsEnabled, customerAllocati
 import { customerRevisionService, customerRevisionSubmissionEnabled, customerRevisionScopeAllowed } from "./customer-revision-service.js";
 import { proofShareContext, proofShareManagementAllowed } from "./share-policy.js";
 import { createSharedProofLink, listSharedProofLinks, revokeSharedProofLink, ProofShareError } from "./share-service.js";
+import { verifyLtlDemoStatusReviewer, verifyStatusReviewerToken } from "./status-reviewer-authorization.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -70,15 +74,19 @@ function deny(res: Parameters<Parameters<Router["get"]>[1]>[1]) {
   res.status(401).json({ error: "This proof access link is invalid or has expired." });
 }
 
-function requireCsrf(req: Request, session: Parameters<typeof validateProofCsrf>[0]) {
+function requireProofCsrf(req: Request, session: Parameters<typeof validateProofCsrf>[0], cookieName: string) {
   const header = req.get("x-vornan-proof-csrf") ?? "";
-  const cookie = cookieValue(req, PROOF_CSRF_COOKIE) ?? "";
+  const cookie = cookieValue(req, cookieName) ?? "";
   if (!header || header !== cookie || !validateProofCsrf(session, header)) {
     throw new ProofCsrfDeniedError();
   }
 }
 
 function handlePublicError(error: unknown, res: Parameters<Parameters<Router["get"]>[1]>[1], fallback: string) {
+  if (error instanceof ProofExistingSessionConflictError) {
+    res.status(409).json({ error: error.message, code: "EXISTING_PROOF_SESSION_PRESERVED" });
+    return;
+  }
   if (error instanceof ProofShareError) {
     res.status(error.status).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
     return;
@@ -148,6 +156,8 @@ function handlePublicError(error: unknown, res: Parameters<Parameters<Router["ge
 }
 
 interface ProofPublicRouterDependencies {
+  statusView?: boolean;
+  verifyReviewerToken?: typeof verifyStatusReviewerToken;
   queueSync?: typeof queueProofSync;
   approveProof?: typeof proofCustomerApprovalService.approve;
   requestProofChanges?: typeof proofCustomerApprovalService.requestChanges;
@@ -164,6 +174,16 @@ interface ProofPublicRouterDependencies {
 
 export function createProofPublicRouter(dependencies: ProofPublicRouterDependencies = {}) {
   const router = Router();
+  const statusView = dependencies.statusView === true;
+  const PROOF_SESSION_COOKIE = statusView ? "vornan_proof_status_session" : "vornan_proof_session";
+  const PROOF_CSRF_COOKIE = statusView ? "vornan_proof_status_csrf" : "vornan_proof_csrf";
+  const PROOF_SESSION_COOKIE_PATH = statusView ? "/api/public/proof/status-view" : "/api/public/proof";
+  const requireCsrf = (req: Request, session: Parameters<typeof validateProofCsrf>[0]) => requireProofCsrf(req, session, PROOF_CSRF_COOKIE);
+  const validateProofSession: typeof validateSessionAuthority = async (...args) => {
+    const authority = await validateSessionAuthority(...args);
+    if (Boolean(authority.grant.status_origin) !== statusView) throw new ProofAccessDeniedError();
+    return authority;
+  };
   const enqueueSync = dependencies.queueSync ?? queueProofSync;
   const approveProof = dependencies.approveProof ?? proofCustomerApprovalService.approve;
   const requestProofChanges = dependencies.requestProofChanges ?? proofCustomerApprovalService.requestChanges;
@@ -177,6 +197,52 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   const detailedReportCheck = dependencies.detailedReportCheck ?? proofDetailedReportService.check;
   const detailedReportView = dependencies.detailedReportView ?? proofDetailedReportService.viewByRecord;
   const readCustomerCapabilityWorkspace = dependencies.readCustomerCapabilityWorkspace;
+  const verifyReviewerToken = dependencies.verifyReviewerToken ?? verifyStatusReviewerToken;
+  async function verifiedReviewer(req: Request) {
+    const authorization = req.get("authorization") ?? "";
+    if (!authorization.startsWith("Bearer ")) throw new ProofAccessDeniedError();
+    try {
+      return await verifyLtlDemoStatusReviewer({ enabled: process.env.PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN === "true",
+        customerId: "1249", bearer: authorization.slice(7), verifyToken: verifyReviewerToken });
+    } catch { throw new ProofAccessDeniedError(); }
+  }
+
+  router.use(async (req, res, next) => {
+    if (!statusView) return next(); // Existing Proof requests retain their original validation/read cost.
+    if (statusView && process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO !== "true") {
+      res.status(404).json({ error: "Proof access is unavailable." }); return;
+    }
+    if (req.path === "/sessions" || req.path === "/health" || req.method === "OPTIONS"
+      || (req.method === "DELETE" && req.path === "/sessions/current")) return next();
+    try {
+      const raw = cookieValue(req, PROOF_SESSION_COOKIE);
+      if (!raw) return next();
+      const { grant, session } = await validateProofSession(raw, new Date(), readCustomerCapabilityWorkspace);
+      if (Boolean(grant.status_origin) !== statusView) throw new ProofAccessDeniedError();
+      if (statusView && req.get("x-vornan-proof-status-order") !== session.order_number) throw new ProofAccessDeniedError();
+      if (grant.status_reviewer) {
+        const identity = await verifiedReviewer(req);
+        if (identity.uid !== grant.status_reviewer.uid || identity.email !== grant.status_reviewer.email) throw new ProofAccessDeniedError();
+      }
+      next();
+    } catch (error) { handlePublicError(error, res, "Proof access is unavailable."); }
+  });
+
+  router.use(async (req, res, next) => {
+    if (!statusView) return next();
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method) || req.path === "/sessions" || req.path === "/order/refresh" || req.path === "/reviewer-session"
+      || (req.method === "DELETE" && req.path === "/sessions/current")) return next();
+    try {
+      const raw = cookieValue(req, PROOF_SESSION_COOKIE);
+      if (!raw) return next(); // Existing routes retain their normal authentication errors.
+      const {grant} = await validateProofSession(raw,new Date(),readCustomerCapabilityWorkspace);
+      const reviewAction = req.method === "POST" && /^\/tasks\/[^/]+\/(decisions\/(approve|request-changes)|feedback-acknowledgements)$/.test(req.path);
+      if (grant.status_origin && !(grant.status_reviewer && reviewAction)) {
+        res.status(403).json({error:"Verified reviewer authorization is required. Status access is view-only.",code:"VERIFIED_REVIEWER_REQUIRED"}); return;
+      }
+      next();
+    } catch (error) { handlePublicError(error,res,"Proof access is unavailable."); }
+  });
 
   function revisionActor(session: Awaited<ReturnType<typeof validateProofSession>>["session"]) {
     if (
@@ -225,7 +291,10 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       const { raw_session: rawSession, raw_csrf: rawCsrf, session } = await exchangeProofToken(
         rawToken,
         new Date(),
-        readCustomerCapabilityWorkspace
+        readCustomerCapabilityWorkspace,
+        previousRawSession,
+        statusView,
+        statusView ? req.get("x-vornan-proof-status-order") ?? "" : undefined
       );
       if (previousRawSession && previousRawSession !== rawSession) {
         await endProofSession(previousRawSession).catch(() => undefined);
@@ -251,6 +320,38 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     }
   });
 
+  router.post("/reviewer-session", async (req, res) => {
+    if (!statusView || process.env.PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN !== "true") {
+      res.status(404).json({ error: "Reviewer sign-in is unavailable." }); return;
+    }
+    let issuedSession: string | undefined;
+    try {
+      const prior = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session, grant } = await validateProofSession(prior, new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      if (!grant.status_origin || grant.status_reviewer || grant.scope !== "view" || grant.capability?.access_mode !== "review"
+        || grant.capability.proof_customer_id !== "1249" || req.get("x-vornan-proof-status-order") !== session.order_number
+        || !getProofRuntimeConfig().feature_flags.approve) throw new ProofAccessDeniedError();
+      const authorization = req.get("authorization") ?? "";
+      if (!authorization.startsWith("Bearer ")) throw new ProofAccessDeniedError();
+      const { created, identity } = await createStatusReviewerPromotion({ rawSession: prior,
+        csrf: req.get("x-vornan-proof-csrf") ?? "", orderNumber: session.order_number,
+        bearer: authorization.slice(7), verifyToken: verifyReviewerToken, readWorkspace: readCustomerCapabilityWorkspace });
+      const rawToken = new URL(created.access_url).hash.slice("#/access/".length);
+      const exchanged = await exchangeProofToken(rawToken, new Date(), readCustomerCapabilityWorkspace, prior, true, session.order_number);
+      issuedSession = exchanged.raw_session;
+      await identifyProofParticipant({ session: exchanged.session, display_name: identity.email, email: identity.email });
+      await endProofSession(prior);
+      const maxAge = Math.max(0, Date.parse(exchanged.session.expires_at) - Date.now());
+      res.cookie(PROOF_SESSION_COOKIE, exchanged.raw_session, { httpOnly: true, secure: true, sameSite: "lax", path: PROOF_SESSION_COOKIE_PATH, maxAge });
+      res.cookie(PROOF_CSRF_COOKIE, exchanged.raw_csrf, { httpOnly: false, secure: true, sameSite: "lax", path: PROOF_CSRF_COOKIE_PATH, maxAge });
+      res.status(201).json({ authorized: true, expires_at: exchanged.session.expires_at });
+    } catch (error) {
+      if (issuedSession) await endProofSession(issuedSession).catch(() => undefined);
+      handlePublicError(error, res, "Reviewer authorization could not be completed.");
+    }
+  });
+
   router.get("/order", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
@@ -260,6 +361,13 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         deny(res);
         return;
       }
+      if (req.query.status_order !== undefined && !statusHandoffMatches(
+        process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO === "true",
+        req.query.status_order, session.order_number, order.order_number, order.customer_id ?? ""
+      )) {
+        res.status(409).json({ error: "Open an authorized Proof link for this order before continuing from Status.", code: "STATUS_PROOF_HANDOFF_UNAVAILABLE" });
+        return;
+      }
       const participants = await listProofParticipants(session.grant_id);
       const participant = session.participant_id
         ? participants.find((candidate) => candidate.participant_id === session.participant_id) ?? null
@@ -267,6 +375,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       const automaticRefresh = proofAutomaticRefreshState(order);
       const proofRuntime = getProofRuntimeConfig();
       const revisionUploadEnabled =
+        !statusView &&
         !session.delegated &&
         session.scope === "review" &&
         grant.capability?.access_mode === "review" &&
@@ -283,7 +392,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         review_experience: grant.capability?.review_experience ?? "simple"
       });
       Object.assign(publicOrder.access, {
-        allocation_enabled: customerAllocationsEnabled() && customerAllocationScopeAllowed(session) && publicOrder.access.decisions_enabled && grant.capability?.review_experience === "advanced"
+        allocation_enabled: !statusView && customerAllocationsEnabled() && customerAllocationScopeAllowed(session) && publicOrder.access.decisions_enabled && grant.capability?.review_experience === "advanced"
       });
       const feedbackStates = new Map(
         (await loadProofFeedbackStates(order, session)).map((state) => [state.task_id, state])
@@ -297,11 +406,16 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
           access: {
             ...publicOrder.access,
             sharing_enabled: proofShareManagementAllowed(grant),
+            status_entry: Boolean(grant.status_origin),
+            status_view_only: Boolean(grant.status_origin) && !grant.status_reviewer,
+            reviewer_verified: Boolean(grant.status_reviewer),
+            reviewer_signin_available: Boolean(grant.status_origin) && !grant.status_reviewer && grant.capability?.access_mode === "review"
+              && proofRuntime.feature_flags.approve && process.env.PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN === "true",
             sharing_context: proofShareManagementAllowed(grant) ? proofShareContext(session) : null,
             sharing_review_enabled: proofShareManagementAllowed(grant) && proofRuntime.feature_flags.approve,
             sharing_expires_at: proofShareManagementAllowed(grant) ? new Date(Math.min(Date.parse(grant.expires_at), activationDeadline(new Date(), true)?.getTime() ?? Infinity)).toISOString() : null,
             revision_upload_enabled: revisionUploadEnabled,
-            revision_recovery_enabled: !session.delegated && session.scope === "review" && grant.capability?.access_mode === "review" && proofRuntime.feature_flags.public_read && customerRevisionScopeAllowed(session),
+            revision_recovery_enabled: !statusView && !session.delegated && session.scope === "review" && grant.capability?.access_mode === "review" && proofRuntime.feature_flags.public_read && customerRevisionScopeAllowed(session),
             revision_submission_enabled: revisionUploadEnabled && publicOrder.access.decisions_enabled && customerRevisionSubmissionEnabled() && customerRevisionScopeAllowed(session)
           },
           health: automaticRefresh.stale && publicOrder.health === "active" ? "stale" : publicOrder.health,
@@ -683,6 +797,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
       const session = await getProofSessionForLogout(rawSession);
+      if (statusView && req.get("x-vornan-proof-status-order") !== session.order_number) throw new ProofAccessDeniedError();
       requireCsrf(req, session);
       await endProofSession(rawSession);
       res.clearCookie(PROOF_SESSION_COOKIE, {

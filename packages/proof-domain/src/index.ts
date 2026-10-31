@@ -159,6 +159,9 @@ export interface ProofGrantCapabilityBinding {
 }
 
 export interface ProofAccessGrant {
+  /** Status-derived authority remains bound to its parent after verified sign-in. */
+  status_origin?: { token_hash: string; order_key: string; customer_id: string };
+  status_reviewer?: { uid: string; email: string; verified_at: string; expires_at: string };
   /** Absent on legacy, single-use operator-issued access links. */
   kind?: "delegated";
   parent_grant_id?: string;

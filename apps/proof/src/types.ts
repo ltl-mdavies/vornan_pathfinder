@@ -77,6 +77,10 @@ export interface ProofOrder {
   };
   last_synced_at: string;
   access: {
+    status_view_only?: boolean;
+    status_entry?: boolean;
+    reviewer_verified?: boolean;
+    reviewer_signin_available?: boolean;
     sharing_enabled?: boolean;
     sharing_context?: string | null;
     sharing_review_enabled?: boolean;

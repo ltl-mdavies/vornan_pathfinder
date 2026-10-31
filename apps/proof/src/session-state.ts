@@ -1,10 +1,18 @@
 export type ProofEntryState =
   | { kind: "access_token"; token: string }
   | { kind: "workspace" }
+  | { kind: "status_handoff"; orderNumber: string }
   | { kind: "link_unavailable" }
   | { kind: "session_ended" };
 
 const RAW_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+
+export class ProofStatusSessionConflictError extends Error {
+  constructor() {
+    super("Your existing Proof session is still active and has not been changed. View-only access from Status cannot replace it yet.");
+    this.name = "ProofStatusSessionConflictError";
+  }
+}
 
 /** A failed link exchange is not an expired authenticated session. Never keep
  * the token or original response on this error, or use it to end a cookie's
@@ -31,7 +39,7 @@ export function watchProofAccessNavigation(target: {
 }) {
   let navigating = false;
   const onHashChange = () => {
-    if (navigating || !target.location.hash.startsWith("#/access/")) return;
+    if (navigating || (!target.location.hash.startsWith("#/access/") && !target.location.hash.startsWith("#/status/"))) return;
     navigating = true;
     target.location.reload();
   };
@@ -40,6 +48,10 @@ export function watchProofAccessNavigation(target: {
 }
 
 export function proofEntryState(hash: string): ProofEntryState {
+  if (hash.startsWith("#/status/")) {
+    const orderNumber = hash.slice("#/status/".length);
+    return /^A\d{7}$/.test(orderNumber) ? { kind: "status_handoff", orderNumber } : { kind: "link_unavailable" };
+  }
   const accessPrefix = "#/access/";
   if (hash.startsWith(accessPrefix)) {
     const token = hash.slice(accessPrefix.length);

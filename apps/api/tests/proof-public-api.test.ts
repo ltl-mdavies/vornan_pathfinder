@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,10 +41,10 @@ const readCustomerCapabilityWorkspace = async (pathfinderCustomerId: string) => 
   }
 });
 
-function exchangeCredentials(exchange: request.Response) {
+function exchangeCredentials(exchange: request.Response, statusView = false) {
   const cookies = exchange.headers["set-cookie"] ?? [];
-  const session = cookies.find((cookie: string) => cookie.startsWith("vornan_proof_session=")) ?? "";
-  const csrfCookie = cookies.find((cookie: string) => cookie.startsWith("vornan_proof_csrf=")) ?? "";
+  const session = cookies.find((cookie: string) => cookie.startsWith(statusView ? "vornan_proof_status_session=" : "vornan_proof_session=")) ?? "";
+  const csrfCookie = cookies.find((cookie: string) => cookie.startsWith(statusView ? "vornan_proof_status_csrf=" : "vornan_proof_csrf=")) ?? "";
   const csrf = csrfCookie.split(";")[0]!.split("=")[1] ?? "";
   return {
     cookie: `${session.split(";")[0]}; ${csrfCookie.split(";")[0]}`,
@@ -128,6 +129,7 @@ before(async () => {
   process.env.PATHFINDER_RUNTIME = "lambda";
   process.env.PATHFINDER_PROOF_STORAGE_DRIVER = "local";
   process.env.PATHFINDER_PROOF_LOCAL_STORE_PATH = join(testDirectory, "proof-store.json");
+  process.env.PATHFINDER_LOCAL_STORE_PATH = join(testDirectory, "pathfinder-store.json");
   process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "true";
   process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "1249";
   process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ = "true";
@@ -148,6 +150,201 @@ before(async () => {
 
 after(async () => {
   await rm(testDirectory, { recursive: true, force: true });
+});
+
+test("Status handoff requires existing authority, remains order-bound and preserves view scope and expiry", async () => {
+  const flag = process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO;
+  try {
+    const created = await access.createProofGrant({ order_number: order.order_number });
+    const exchange = await request(app).post("/api/public/proof/sessions").send({ token: created.access_url.split("/").at(-1)! }).expect(201);
+    const {cookie} = exchangeCredentials(exchange);
+    const path = `/api/public/proof/order?status_order=${order.order_number}`;
+    delete process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO;
+    await request(app).get(path).set("Cookie",cookie).expect(409);
+    process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO = "true";
+    await request(app).get(path).expect(401);
+    await request(app).get("/api/public/proof/order?status_order=A0000000").set("Cookie",cookie).expect(409);
+    const result = await request(app).get(path).set("Cookie",cookie).expect(200);
+    assert.equal(result.body.order.order_number,order.order_number);
+    assert.equal(result.body.order.access.decisions_enabled,false);
+    assert.equal(result.body.session_expires_at,exchange.body.expires_at);
+    assert.equal(result.headers["set-cookie"],undefined,"handoff does not issue or extend credentials");
+    await access.updateProofGrant(created.grant.grant_id,{action:"revoke"});
+    await request(app).get(path).set("Cookie",cookie).expect(401);
+  } finally {
+    if(flag === undefined) delete process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO;
+    else process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO = flag;
+  }
+});
+
+test("Status-derived view grants deny all review writes, cannot be regenerated and follow parent revocation", async () => {
+  const mainStore = await import("../src/store.ts");
+  const previousFlag = process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO;
+  process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO = "true";
+  const customer = {lift_customer_id:"1249",name:"LTL Demo"} as Parameters<typeof mainStore.getOrCreateWorkspace>[0];
+  try {
+    await mainStore.getOrCreateWorkspace(customer);
+    await mainStore.updateStatusAccessPolicy(customer,{proof_visibility:"review_link"});
+    const parent = {token_hash:createHash("sha256").update("synthetic-parent-only").digest("hex"),order_key:"qa-parent",customer_id:"1249",job_id:"qa-only",order_number:order.order_number,
+      status:"Active" as const, created_at:new Date().toISOString(),updated_at:new Date().toISOString(),
+      expires_at:new Date(Date.now()+3600000).toISOString(),expires_at_epoch:Math.floor(Date.now()/1000)+3600};
+    await mainStore.persistOrderStatusToken(parent);
+    const created = await access.createProofGrant({order_number:order.order_number,scope:"view",expires_at:new Date(Date.now()+600000).toISOString(),
+      status_origin:{token_hash:parent.token_hash,order_key:parent.order_key,customer_id:"1249"}});
+    const existingGrant = await access.createProofGrant({order_number:order.order_number,scope:"view"});
+    const existingExchange = await request(app).post("/api/public/proof/sessions").send({token:existingGrant.access_url.split("/").at(-1)!}).expect(201);
+    const existingCredentials = exchangeCredentials(existingExchange);
+    const conflict = await request(app).post("/api/public/proof/sessions").set("Cookie",existingCredentials.cookie)
+      .send({token:created.access_url.split("/").at(-1)!}).expect(401);
+    assert.equal(conflict.headers["set-cookie"],undefined);
+    await request(app).get("/api/public/proof/order").set("Cookie",existingCredentials.cookie).expect(200);
+    const exchange = await request(app).post("/api/public/proof/status-view/sessions").set("Cookie",existingCredentials.cookie).set("X-Vornan-Proof-Status-Order",order.order_number)
+      .send({token:created.access_url.split("/").at(-1)!}).expect(201);
+    const {cookie,csrf} = exchangeCredentials(exchange, true);
+    assert.ok(exchangeCredentials(exchange,true).session.includes("Path=/api/public/proof/status-view"));
+    assert.ok(!(exchange.headers["set-cookie"] as string[]).some(item => item.startsWith("vornan_proof_session=")));
+    const combinedCookie = `${existingCredentials.cookie}; ${cookie}`;
+    const packet = await request(app).get("/api/public/proof/status-view/order").set("Cookie",combinedCookie).set("X-Vornan-Proof-Status-Order",order.order_number).expect(200);
+    await request(app).get("/api/public/proof/status-view/order").set("Cookie",combinedCookie).set("X-Vornan-Proof-Status-Order","A0999999").expect(401);
+    await request(app).get("/api/public/proof/status-view/order").set("Cookie",combinedCookie).expect(401);
+    const original = await request(app).get("/api/public/proof/order").set("Cookie",combinedCookie).expect(200);
+    assert.equal(original.body.order.access.status_view_only,false);
+    await request(app).get("/api/public/proof/status-view/order").set("Cookie",existingCredentials.cookie).expect(401);
+    assert.equal(packet.body.order.access.status_view_only,true);
+    assert.equal(packet.body.order.access.decisions_enabled,false);
+    assert.equal(packet.body.order.access.sharing_enabled,false);
+    for(const path of ["/participants","/shares","/tasks/ptask_public_qa/decisions/approve","/tasks/ptask_public_qa/decisions/request-changes","/tasks/ptask_public_qa/revised-assets/uploads/prepare","/approval-batches","/sessions/current/extend"]) {
+      const denied = await request(app).post(`/api/public/proof/status-view${path}`).set("Cookie",combinedCookie).set("X-Vornan-Proof-Status-Order",order.order_number).set("X-Vornan-Proof-Csrf",csrf).send({display_name:"Claimed reviewer",email:"unverified@example.test"}).expect(403);
+      assert.equal(denied.body.code,"VERIFIED_REVIEWER_REQUIRED");
+    }
+    await assert.rejects(()=>access.updateProofGrant(created.grant.grant_id,{action:"regenerate"}));
+    await mainStore.persistOrderStatusToken({...parent,status:"Revoked"});
+    await request(app).get("/api/public/proof/status-view/order").set("Cookie",combinedCookie).expect(401);
+    await request(app).delete("/api/public/proof/status-view/sessions/current").set("Cookie",combinedCookie).set("X-Vornan-Proof-Status-Order",order.order_number).set("X-Vornan-Proof-Csrf",csrf).expect(204);
+    await request(app).get("/api/public/proof/order").set("Cookie",combinedCookie).expect(200);
+  } finally {
+    if(previousFlag === undefined) delete process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO;
+    else process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO = previousFlag;
+  }
+});
+
+test("Status view creation requires exact parent membership and verified enabled customer policy", async () => {
+  const mainStore = await import("../src/store.ts");
+  const { createStatusProofView } = await import("../src/proof/status-view-service.ts");
+  const previousFlag = process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO;
+  const customer = { lift_customer_id: "1249", customer_name: "Synthetic LTL Demo" } as Parameters<typeof mainStore.getOrCreateWorkspace>[0];
+  const rawParent = "q".repeat(43);
+  const parent = { token_hash: createHash("sha256").update(rawParent).digest("hex"), order_key: "qa-service", customer_id: "1249",
+    job_id: "qa-service-only", order_number: order.order_number, status: "Active" as const,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 3600000).toISOString(), expires_at_epoch: Math.floor(Date.now()/1000) + 3600 };
+  try {
+    process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO = "false";
+    await assert.rejects(() => createStatusProofView(rawParent, order.order_number));
+    process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO = "true";
+    await mainStore.persistOrderStatusToken(parent);
+    let workspace = await mainStore.getOrCreateWorkspace(customer);
+    await mainStore.updateStatusAccessPolicy(customer, { proof_visibility: "review_link" });
+    await assert.rejects(() => createStatusProofView(rawParent, order.order_number));
+    workspace = await mainStore.verifyCustomerProofCustomerIdentity(customer, "1249", order.order_number, "synthetic-test", workspace.proof_capability_policy.updated_at);
+    await mainStore.updateCustomerProofCapabilityPolicy(customer, { access_mode: "review", review_experience: "simple" }, "synthetic-test", workspace.proof_capability_policy.updated_at);
+    const created = await createStatusProofView(rawParent, order.order_number);
+    assert.equal(created.scope, "view");
+    assert.ok(Date.parse(created.expires_at) <= Date.now() + 15 * 60 * 1000);
+    await assert.rejects(() => createStatusProofView(rawParent, "A0999999"));
+    await mainStore.persistOrderStatusToken({ ...parent, customer_id: "175332" });
+    await assert.rejects(() => createStatusProofView(rawParent, order.order_number));
+    await mainStore.persistOrderStatusToken({ ...parent, status: "Revoked" });
+    await assert.rejects(() => createStatusProofView(rawParent, order.order_number));
+    await mainStore.persistOrderStatusToken(parent);
+    await mainStore.updateStatusAccessPolicy(customer, { proof_visibility: "off" });
+    await assert.rejects(() => createStatusProofView(rawParent, order.order_number));
+  } finally {
+    if (previousFlag === undefined) delete process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO;
+    else process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO = previousFlag;
+  }
+});
+
+test("Status reviewer sign-in verifies identity, rotates only isolated authority and rechecks revocation", async () => {
+  const mainStore = await import("../src/store.ts");
+  const { createStatusProofView } = await import("../src/proof/status-view-service.ts");
+  const { createProofPublicRouter } = await import("../src/proof/public-router.ts");
+  const flags = ["PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO", "PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN", "PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS", "PATHFINDER_PROOF_ENABLE_GRANT_CREATION"];
+  const saved = flags.map(key => process.env[key]);
+  const customer = { lift_customer_id: "1249", customer_name: "Synthetic LTL Demo" } as Parameters<typeof mainStore.getOrCreateWorkspace>[0];
+  const rawParent = "v".repeat(43);
+  const parent = { token_hash: createHash("sha256").update(rawParent).digest("hex"), order_key: "qa-signin", customer_id: "1249", job_id: "qa-only",
+    order_number: order.order_number, status: "Active" as const, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    expires_at: new Date(Date.now()+3600000).toISOString(), expires_at_epoch: Math.floor(Date.now()/1000)+3600 };
+  let verifierCalls = 0;
+  let revoked = false;
+  const isolated = express(); isolated.use(express.json());
+  isolated.use("/api/public/proof/status-view", createProofPublicRouter({ statusView: true,
+    readCustomerCapabilityWorkspace: id => mainStore.getWorkspace(id),
+    verifyReviewerToken: async (token, checkRevoked) => {
+      verifierCalls++; assert.equal(checkRevoked, true);
+      if (revoked) throw new Error("synthetic revoked identity");
+      return { uid: token === "wrong-uid" ? "other" : "synthetic-marcus", email: token === "approved" || token === "wrong-uid" ? "mdavies@ltlco.com" : "other@example.test",
+        email_verified: token !== "unverified", auth_time: Math.floor(Date.now()/1000)-60, exp: Math.floor(Date.now()/1000)+3600 };
+    } }));
+  const base = "/api/public/proof/status-view";
+  try {
+    flags.forEach(key => { process.env[key] = "true"; });
+    await mainStore.updateStatusAccessPolicy(customer, { proof_visibility: "review_link" });
+    await mainStore.persistOrderStatusToken(parent);
+    const link = await createStatusProofView(rawParent, order.order_number);
+    const token = new URL(link.access_url).hash.slice("#/access/".length);
+    const exchanged = await request(isolated).post(`${base}/sessions`).set("X-Vornan-Proof-Status-Order",order.order_number).send({token}).expect(201);
+    const view = exchangeCredentials(exchanged, true);
+    process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "false";
+    await assert.rejects(() => access.createProofGrant({ order_number: order.order_number }), /grant creation/);
+    await assert.rejects(() => access.createStatusReviewerPromotion({ rawSession: view.cookie,
+      csrf: view.csrf, orderNumber: order.order_number, bearer: "approved",
+      verifyToken: async () => { assert.fail("Invalid session must fail before provider verification"); } }));
+    await request(isolated).post(`${base}/reviewer-session`).set("Cookie",view.cookie).set("X-Vornan-Proof-Status-Order",order.order_number).set("Authorization","Bearer approved").send({}).expect(403);
+    assert.equal(verifierCalls, 0, "CSRF denial precedes identity verification");
+    for (const bearer of ["wrong", "unverified"]) {
+      await request(isolated).post(`${base}/reviewer-session`).set("Cookie",view.cookie).set("X-Vornan-Proof-Status-Order",order.order_number)
+        .set("X-Vornan-Proof-Csrf",view.csrf).set("Authorization",`Bearer ${bearer}`).send({}).expect(401);
+    }
+    const stillView = await request(isolated).get(`${base}/order`).set("Cookie",view.cookie).set("X-Vornan-Proof-Status-Order",order.order_number).expect(200);
+    assert.equal(stillView.body.order.access.status_view_only,true);
+    for (const flag of ["PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO", "PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN", "PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS"]) {
+      process.env[flag] = "false";
+      const denied = await request(isolated).post(`${base}/reviewer-session`).set("Cookie", view.cookie)
+        .set("X-Vornan-Proof-Status-Order", order.order_number).set("X-Vornan-Proof-Csrf", view.csrf)
+        .set("Authorization", "Bearer approved").send({});
+      assert.ok([401,403,404].includes(denied.status), `${flag} must prevent promotion`);
+      process.env[flag] = "true";
+    }
+    const promoted = await request(isolated).post(`${base}/reviewer-session`).set("Cookie",view.cookie).set("X-Vornan-Proof-Status-Order",order.order_number)
+      .set("X-Vornan-Proof-Csrf",view.csrf).set("Authorization","Bearer approved").send({}).expect(201);
+    const reviewer = exchangeCredentials(promoted,true);
+    assert.notEqual(reviewer.csrf,view.csrf);
+    assert.ok(!(promoted.headers["set-cookie"] as string[]).some(value => value.startsWith("vornan_proof_session=")));
+    await request(isolated).get(`${base}/order`).set("Cookie",view.cookie).set("X-Vornan-Proof-Status-Order",order.order_number).expect(401);
+    const authorized = await request(isolated).get(`${base}/order`).set("Cookie",reviewer.cookie).set("X-Vornan-Proof-Status-Order",order.order_number).set("Authorization","Bearer approved").expect(200);
+    assert.equal(authorized.body.order.access.reviewer_verified,true);
+    assert.equal(authorized.body.order.access.decisions_enabled,true);
+    assert.equal(authorized.body.order.access.sharing_enabled,false);
+    assert.equal(authorized.body.order.access.revision_upload_enabled,false);
+    assert.equal(authorized.body.participant.email,"mdavies@ltlco.com");
+    await assert.rejects(() => access.createProofGrant({ order_number: order.order_number }), /grant creation/);
+    await request(isolated).post(`${base}/reviewer-session`).set("Cookie",reviewer.cookie)
+      .set("X-Vornan-Proof-Status-Order",order.order_number).set("Authorization","Bearer approved")
+      .set("X-Vornan-Proof-Csrf",reviewer.csrf).send({}).expect(401);
+    for (const path of ["/participants","/shares","/sessions/current/extend","/approval-batches"]) {
+      await request(isolated).post(`${base}${path}`).set("Cookie",reviewer.cookie).set("X-Vornan-Proof-Status-Order",order.order_number)
+        .set("Authorization","Bearer approved").set("X-Vornan-Proof-Csrf",reviewer.csrf).send({}).expect(403);
+    }
+    await request(isolated).get(`${base}/order`).set("Cookie",reviewer.cookie).set("X-Vornan-Proof-Status-Order",order.order_number).expect(401);
+    await request(isolated).get(`${base}/order`).set("Cookie",reviewer.cookie).set("X-Vornan-Proof-Status-Order",order.order_number).set("Authorization","Bearer wrong-uid").expect(401);
+    revoked = true;
+    await request(isolated).get(`${base}/order`).set("Cookie",reviewer.cookie).set("X-Vornan-Proof-Status-Order",order.order_number).set("Authorization","Bearer approved").expect(401);
+    revoked = false;
+    await mainStore.persistOrderStatusToken({...parent,status:"Revoked"});
+    await request(isolated).get(`${base}/order`).set("Cookie",reviewer.cookie).set("X-Vornan-Proof-Status-Order",order.order_number).set("Authorization","Bearer approved").expect(401);
+  } finally { flags.forEach((key,index) => { if(saved[index] === undefined) delete process.env[key]; else process.env[key] = saved[index]; }); }
 });
 
 test("allocation routes require a live session and CSRF before invoking the batch service", async () => {
