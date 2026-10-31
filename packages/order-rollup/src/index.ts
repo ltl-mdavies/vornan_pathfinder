@@ -783,6 +783,8 @@ export interface OrderRollupSnapshot {
   lifecycle?: OrderRollupLifecycle;
   proof_summary?: OrderRollupProofSummary | null;
   proof_visibility?: OrderRollupProofVisibility;
+  /** Presentation capability only; unknown is disabled. */
+  proofing_enabled?: boolean;
   shipment_summary?: OrderRollupShipmentSummary | null;
   lines: OrderRollupLine[];
   source_status?: Partial<Record<OrderRollupDataSource, OrderRollupSourceStatus>>;

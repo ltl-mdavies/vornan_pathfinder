@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { isPendingProofLine, pendingProofControlsEnabled } from "./pending-proof-lines.js";
 import { ArrowUpRight, CheckCircle2, ChevronDown, FileImage, LoaderCircle } from "lucide-react";
 import { isStatusProofAsset, retryStatusProofAsset, useDocumentLoadingDelay, useProofAssetRecovery } from "./proof-asset-recovery.js";
 import {
@@ -862,7 +863,7 @@ function publicOrderSummary(
   return `${status} · Shipment updates pending.`;
 }
 
-function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAssetsLoading, publicLayout = false, expanded = false, onExpandedChange }: { line: OrderRollupLine; displayDate: (value?: string | null) => string; showProofs: boolean; allowProofAssetLinks: boolean; proofAssetsLoading: boolean; publicLayout?: boolean; expanded?: boolean; onExpandedChange?: (expanded: boolean) => void }) {
+function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAssetsLoading, publicLayout = false, pendingProof = false, expanded = false, onExpandedChange }: { line: OrderRollupLine; displayDate: (value?: string | null) => string; showProofs: boolean; allowProofAssetLinks: boolean; proofAssetsLoading: boolean; publicLayout?: boolean; pendingProof?: boolean; expanded?: boolean; onExpandedChange?: (expanded: boolean) => void }) {
   const lineTitle = line.product_name ?? line.description ?? `Order line ${line.line_number}`;
   const description = line.description?.trim();
   const distinctDescription = description && description.replace(/\s+/g, " ").toLowerCase() !== lineTitle.trim().replace(/\s+/g, " ").toLowerCase() ? description : null;
@@ -891,7 +892,7 @@ function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAs
             {showProofs ? <span>{line.proof_count} creative{line.proof_count === 1 ? "" : "s"}</span> : null}
             <span>{line.package_count ? `${line.package_count} package${line.package_count === 1 ? "" : "s"}` : "No shipment yet"}</span>
           </div>
-          <span className="order-rollup__status">{lineStatus(line)}</span>
+          <span className={`order-rollup__status${pendingProof ? " order-rollup__status--pending-proof" : ""}`}>{lineStatus(line)}</span>
           <ChevronDown className="order-rollup__line-chevron" aria-hidden="true" />
         </summary>
         <div className="order-rollup__line-expanded">
@@ -966,6 +967,14 @@ export function OrderRollup({
   shipmentsLoading?: boolean;
 }) {
   const [publicExpandedLines, setPublicExpandedLines] = useState<Set<string>>(() => new Set());
+  const [proofFilter, setProofFilter] = useState<{ order: string; pending: boolean }>({ order: snapshot.order_number, pending: false });
+  const proofControls = audience === "public" && pendingProofControlsEnabled(snapshot);
+  const pendingOnly = proofControls && proofFilter.order === snapshot.order_number && proofFilter.pending;
+  const pendingLines = snapshot.lines.filter(isPendingProofLine);
+  const visibleLines = pendingOnly ? pendingLines : snapshot.lines;
+  useEffect(() => {
+    if (!proofControls) setProofFilter({ order: snapshot.order_number, pending: false });
+  }, [proofControls, snapshot.order_number]);
   const liveOrder = snapshot.live_order ?? null;
   const proofVisibility = audience === "internal" ? "review_link" : snapshot.proof_visibility ?? "status_only";
   const showProofs = proofVisibility !== "off";
@@ -993,8 +1002,8 @@ export function OrderRollup({
   const displayedIssues = audience === "internal"
     ? snapshot.issues
     : snapshot.issues.filter((issue) => issue.source === "order" && issue.impact === "core_unavailable");
-  const allPublicLinesExpanded = snapshot.lines.length > 0
-    && snapshot.lines.every((line) => publicExpandedLines.has(publicLineKey(line)));
+  const allPublicLinesExpanded = visibleLines.length > 0
+    && visibleLines.every((line) => publicExpandedLines.has(publicLineKey(line)));
   const atAGlanceSummary = publicOrderSummary(orderStatus, packageCount, summarizedDestinations.length);
 
   if (audience === "public") {
@@ -1042,15 +1051,25 @@ export function OrderRollup({
             <div className="order-rollup__lines-heading">
               <div>
                 <h2>Order lines</h2>
-                <p className="order-rollup__lines-count">{snapshot.lines.length} line{snapshot.lines.length === 1 ? "" : "s"}</p>
+                <p className="order-rollup__lines-count" aria-live="polite">{pendingOnly ? `${visibleLines.length} of ` : ""}{snapshot.lines.length} line{snapshot.lines.length === 1 ? "" : "s"}</p>
               </div>
               <div className="order-rollup__lines-heading-actions">
+                {proofControls ? <div className="order-rollup__proof-filter" role="group" aria-label="Filter order lines">
+                  <button type="button" aria-pressed={!pendingOnly} onClick={() => setProofFilter({order: snapshot.order_number, pending: false})}>All lines</button>
+                  <button type="button" aria-pressed={pendingOnly} onClick={() => setProofFilter({order: snapshot.order_number, pending: true})}>Pending proof ({pendingLines.length})</button>
+                </div> : null}
                 <span>Line progress may vary.</span>
                 <button
                   type="button"
-                  onClick={() => setPublicExpandedLines(allPublicLinesExpanded
-                    ? new Set()
-                    : new Set(snapshot.lines.map(publicLineKey)))}
+                  disabled={visibleLines.length === 0}
+                  onClick={() => setPublicExpandedLines(current => {
+                    const next = new Set(current);
+                    for (const line of visibleLines) {
+                      if (allPublicLinesExpanded) next.delete(publicLineKey(line));
+                      else next.add(publicLineKey(line));
+                    }
+                    return next;
+                  })}
                 >
                   <span>{allPublicLinesExpanded ? "Collapse all" : "Open all"}</span>
                   <ChevronDown className={allPublicLinesExpanded ? "is-expanded" : ""} aria-hidden="true" />
@@ -1058,9 +1077,11 @@ export function OrderRollup({
               </div>
             </div>
             <div className="order-rollup__lines">
+              {pendingOnly && visibleLines.length === 0 ? <div className="order-rollup__proof-empty" role="status">No lines are pending proof. <button type="button" onClick={() => setProofFilter({order: snapshot.order_number, pending: false})}>Show all lines</button></div> : null}
               {snapshot.lines.map((line) => {
                 const key = publicLineKey(line);
                 return (
+                  <div key={key} hidden={pendingOnly && !isPendingProofLine(line)}>
                   <LineCard
                     line={line}
                     displayDate={displayDate}
@@ -1068,6 +1089,7 @@ export function OrderRollup({
                     allowProofAssetLinks={allowProofAssetLinks}
                     proofAssetsLoading={proofAssetsLoading}
                     publicLayout
+                    pendingProof={proofControls && isPendingProofLine(line)}
                     expanded={publicExpandedLines.has(key)}
                     onExpandedChange={(nextExpanded) => setPublicExpandedLines((current) => {
                       const next = new Set(current);
@@ -1076,7 +1098,7 @@ export function OrderRollup({
                       return next;
                     })}
                     key={key}
-                  />
+                  /></div>
                 );
               })}
             </div>

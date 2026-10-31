@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeProofOrder, type ProofOrder } from "@pathfinder/proof-domain";
+import type { PathfinderCustomerWorkspace } from "../src/store.js";
 
 process.env.PATHFINDER_RUNTIME = "lambda";
 process.env.PATHFINDER_REQUIRE_AUTH = "false";
@@ -15,6 +16,29 @@ const {
 } = await import("../src/server.ts");
 
 const checkedAt = "2026-07-20T20:30:00.000Z";
+
+test("public presentation never trusts a cached proofing-enabled flag without current workspace authority", () => {
+  const snapshot = publicOrderStatusSnapshotFromInternal(buildFixtureSnapshot(null), "review_link");
+  snapshot.proofing_enabled = true;
+  assert.equal(applyPublicProofVisibility(snapshot, "review_link").proofing_enabled, false);
+  assert.equal(applyPublicProofVisibility(snapshot, "off").proofing_enabled, false);
+});
+
+test("public projection reflects current customer defaults and exact order overrides without changing visibility", () => {
+  const snapshot = publicOrderStatusSnapshotFromInternal(buildFixtureSnapshot(null), "status_only");
+  snapshot.live_order = {...snapshot.live_order!,order_number:snapshot.order_number,customer_id:1249};
+  const workspace = {customer:{lift_customer_id:"1249"},proof_capability_policy:{
+    access_mode:"review",updated_at:checkedAt,order_overrides:[],
+    customer_identity:{proof_customer_id:"1249",verified_order_number:snapshot.order_number,verified_at:checkedAt}
+  }} as unknown as PathfinderCustomerWorkspace;
+  const enabled = applyPublicProofVisibility(snapshot,"status_only",{proof_workspace:workspace,proof_customer_id:"1249"});
+  assert.equal(enabled.proofing_enabled,true);
+  assert.equal(enabled.proof_visibility,"status_only");
+  assert.equal(enabled.proof_summary?.review_url ?? null,null);
+  assert.deepEqual(enabled.lines,snapshot.lines);
+  workspace.proof_capability_policy.order_overrides=[{order_number:snapshot.order_number,access_mode:"disabled",review_experience:"simple",updated_at:checkedAt,updated_by:"test"}];
+  assert.equal(applyPublicProofVisibility(enabled,"status_only",{proof_workspace:workspace,proof_customer_id:"1249"}).proofing_enabled,false);
+});
 
 test("enriches exact package records with ShippingReport recipients and addresses without duplicating tracking", () => {
   const shippingRows = normalizeShippingReportPayload({

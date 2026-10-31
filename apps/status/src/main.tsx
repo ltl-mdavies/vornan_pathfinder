@@ -140,6 +140,7 @@ type PublicOrderStatusSnapshot = {
   };
   proof_summary?: OrderRollupProofSummary | null;
   proof_visibility: OrderRollupProofVisibility;
+  proofing_enabled?: boolean;
   shipment_summary?: OrderRollupShipmentSummary | null;
   lines: StatusLine[];
   lookups: {
@@ -909,11 +910,13 @@ function DesignQaApp() {
     snapshot.proof_summary = { ...snapshot.proof_summary!, health: reviewScenario === "unavailable" ? "stale" : "active",
       pending, reviewed: 4 - pending, total: 4, review_required: pending > 0, access_mode: "review_link", review_url: null };
     snapshot.proof_visibility = reviewScenario === "ineligible" ? "status_only" : "review_link";
+    snapshot.proofing_enabled = reviewScenario !== "ineligible";
     if (reviewScenario === "ineligible") snapshot.proof_summary.access_mode = "status_only";
     snapshot.lines.forEach((line, lineIndex) => {
       line.product_name = lineIndex === 0 ? "Paper Label · retail packaging" : "Paper Label · shipping carton";
       line.material = "White paper";
       line.step = snapshot.order_status!.step;
+      if (reviewScenario === "none" || (reviewScenario === "one" && lineIndex !== 0)) line.step = printStep;
       line.packages = []; line.package_count = 0; line.latest_tracking_message = null;
       line.proofs = Array.from({length: lineIndex === 0 ? 3 : 1}, (_, index) => {
         const approved = reviewScenario === "none" || (reviewScenario === "one" ? lineIndex !== 0 || index !== 0 : lineIndex === 0 && index === 2);
@@ -927,6 +930,17 @@ function DesignQaApp() {
       line.proof_review_required = line.proofs.some(proof => proof.proof_state === "pending");
       line.latest_proof_status = line.proof_review_required ? "PENDING" : "APPROVED";
     });
+    if (reviewScenario === "mixed") {
+      const first = snapshot.lines[0]!;
+      const second = snapshot.lines[1]!;
+      first.step = {...approvalStep,step_number:"7.01",step_name:"PDF Proof",order_status:"To Be Proofed"};
+      second.step = printStep;
+      second.proofs = second.proofs.map(proof => ({...proof,proof_state:"approved",proof_approval_status:"APPROVED"}));
+      second.proof_review_required = false;
+      snapshot.lines.push({...second,line_number:3,order_line_id:10027015,product_name:"Paper Label · outer case",
+        step:approvalStep,proof_review_required:true,latest_proof_status:"PENDING",proofs:[{...first.proofs[0]!,proof_link_low:previewAssetsReady ? "https://status-preview.invalid/public/status/synthetic/proof-asset?line=3&creative=1" : null}]});
+      snapshot.proof_summary = {...snapshot.proof_summary!,total:5,pending:3,reviewed:2};
+    }
   }
 
   return (
@@ -934,7 +948,7 @@ function DesignQaApp() {
       <PublicStatusHeader productName="Order status" refreshState={refreshState} />
       {entryReview ? <div className="proof-entry-qa-controls"><strong>Local review · synthetic artwork</strong><label>Proof state <select value={reviewScenario} onChange={event => setReviewScenario(event.target.value)}>
         <option value="many">3 pending · review available</option><option value="one">1 pending</option><option value="none">None pending</option>
-        <option value="checking">Checking availability</option><option value="unavailable">Status unavailable</option><option value="ineligible">Review access not connected</option>
+        <option value="mixed">Mixed 7.01 / production / 7.02</option><option value="checking">Checking availability</option><option value="unavailable">Status unavailable</option><option value="ineligible">Review access not connected</option>
       </select></label></div> : null}
       <StatusView payload={payload} refreshState={entryReview ? reviewScenario === "checking" ? "checking" : "live" : refreshState}
         previewProofAction={entryReview ? () => setHandoffOpen(true) : undefined} />
