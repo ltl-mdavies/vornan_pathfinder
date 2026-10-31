@@ -1,5 +1,6 @@
 import type { Auth } from "firebase/auth";
 import { validStatusReviewerConfig } from "./status-reviewer-config";
+import { timeReviewerStage, type ReviewerStage } from "./reviewer-progress";
 
 let reviewerAuth: Auth | null = null;
 export function statusReviewerSignInConfigured() {
@@ -10,9 +11,10 @@ export function statusReviewerSignInConfigured() {
  * No tokens are put in URLs, logs or application storage. Server authorization
  * remains authoritative; the email field/display name is never used as proof.
  */
-export async function signInStatusReviewer() {
+export async function signInStatusReviewer(onStage: (stage: ReviewerStage) => void = () => undefined) {
   if (!statusReviewerSignInConfigured()) throw new Error("Reviewer sign-in is not available yet.");
-  const [app, auth] = await Promise.all([import("firebase/app"), import("firebase/auth")]);
+  onStage("preparing");
+  const [app, auth] = await timeReviewerStage("preparing", () => Promise.all([import("firebase/app"), import("firebase/auth")]));
   if (!reviewerAuth) {
     const name = "proof-status-reviewer";
     const firebaseApp = app.getApps().find(candidate => candidate.name === name) ?? app.initializeApp({
@@ -23,7 +25,10 @@ export async function signInStatusReviewer() {
   }
   const provider = new auth.GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
-  await auth.signInWithPopup(reviewerAuth, provider);
+  onStage("google");
+  const result = await timeReviewerStage("google", () => auth.signInWithPopup(reviewerAuth!, provider));
+  onStage("token");
+  await timeReviewerStage("token", () => result.user.getIdToken());
 }
 
 export async function statusReviewerBearer() {

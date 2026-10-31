@@ -32,6 +32,7 @@ import { ShareOrder } from "./share-order";
 import { authorizeStatusReviewer } from "./api";
 import { signInStatusReviewer, statusReviewerSignInConfigured, clearStatusReviewerSignIn } from "./status-reviewer-signin";
 import { StatusReviewerAccess } from "./status-reviewer-access";
+import { reviewerSignInFailure, timeReviewerStage, type ReviewerStage } from "./reviewer-progress";
 import { ReviewerSuccessToast } from "./reviewer-success-toast";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
@@ -1191,6 +1192,7 @@ export function App() {
   const [sessionExtending, setSessionExtending] = useState(false);
   const [sessionExtendError, setSessionExtendError] = useState<string | null>(null);
   const [reviewerSigningIn, setReviewerSigningIn] = useState(false);
+  const [reviewerStage, setReviewerStage] = useState<ReviewerStage>("preparing");
   const [reviewerSignInError, setReviewerSignInError] = useState<string | null>(null);
   const [historyByTask, setHistoryByTask] = useState<Record<string, HistoryState>>({});
   const dialogElement = useRef<HTMLDialogElement>(null);
@@ -1276,15 +1278,18 @@ export function App() {
     if (reviewerSigningIn) return;
     setReviewerSigningIn(true); setReviewerSignInError(null);
     try {
-      await signInStatusReviewer();
+      await signInStatusReviewer(setReviewerStage);
       // Never authorize if the user ended/expired this workspace while the popup was open.
       if (!canApplyProofResponse()) { await clearStatusReviewerSignIn(); return; }
-      await authorizeStatusReviewer();
+      setReviewerStage("authorizing");
+      await timeReviewerStage("authorizing", authorizeStatusReviewer);
       if (!canApplyProofResponse()) { await endSession().catch(() => undefined); return; }
-      applyProofLoad(await loadProofOrder());
-    } catch {
+      setReviewerStage("loading");
+      const packet = await timeReviewerStage("loading", loadProofOrder);
+      if (canApplyProofResponse()) applyProofLoad(packet);
+    } catch (error) {
       await clearStatusReviewerSignIn().catch(() => undefined);
-      setReviewerSignInError("Reviewer access couldn’t be verified. You can still view the artwork.");
+      if (canApplyProofResponse()) setReviewerSignInError(reviewerSignInFailure(error));
     } finally { setReviewerSigningIn(false); }
   }
 
@@ -2070,7 +2075,7 @@ export function App() {
           <strong>Proof</strong>
         </div>
         <div className="session-actions">
-          {order?.access.status_entry ? <StatusReviewerAccess verified={Boolean(order.access.reviewer_verified)} available={Boolean(order.access.reviewer_signin_available && statusReviewerSignInConfigured())} busy={reviewerSigningIn} error={reviewerSignInError} onSignIn={() => void verifyStatusReviewer()} /> : <button ref={reviewerButton} className="reviewer-button" type="button" onClick={(event) => openIdentityDialog(event.currentTarget)}>
+          {order?.access.status_entry ? <StatusReviewerAccess verified={Boolean(order.access.reviewer_verified)} available={Boolean(order.access.reviewer_signin_available && statusReviewerSignInConfigured())} busy={reviewerSigningIn} stage={reviewerStage} error={reviewerSignInError} onSignIn={() => void verifyStatusReviewer()} /> : <button ref={reviewerButton} className="reviewer-button" type="button" onClick={(event) => openIdentityDialog(event.currentTarget)}>
             <UserRound aria-hidden="true" />
             <span>{participant?.display_name ?? "Identify reviewer"}</span>
           </button>}
