@@ -139,6 +139,7 @@ function buildFixtureSnapshot(
     proofLineStep?: { id: string | number | null; number: string | number | null };
     orderLookupOk?: boolean;
     proofReportOk?: boolean;
+    freshProofSummary?: import("@pathfinder/order-rollup").OrderRollupProofSummary | null;
   } = {}
 ) {
   return buildOrderSnapshot({
@@ -249,6 +250,7 @@ function buildFixtureSnapshot(
       }]
     } as never,
     proofOrder,
+    freshProofSummary: options.freshProofSummary,
     packageDetails: {
       ok: true,
       http_status: 200,
@@ -273,6 +275,19 @@ function buildFixtureSnapshot(
     issues: []
   });
 }
+
+test("fresh summary does not replace current report assets or confer decisions", () => {
+  const baseline = buildFixtureSnapshot();
+  const summary = { source: "lift_report" as const, health: "active" as const, pending: 1,
+    regenerating: 0, waiting: 0, reviewed: 0, total: 1, review_required: true,
+    last_synced_at: checkedAt, decisions_enabled: false as const };
+  const fresh = buildFixtureSnapshot(null, { freshProofSummary: summary });
+  assert.deepEqual(fresh.proofs, baseline.proofs);
+  assert.deepEqual(fresh.lines, baseline.lines);
+  assert.deepEqual(fresh.proof_summary, summary);
+  const publicFresh = publicOrderStatusSnapshotFromInternal(fresh, "review_link");
+  assert.equal(publicFresh.proof_summary?.decisions_enabled, false);
+});
 
 test("projects a successful Orders rowset:null as a durable canceled order without a data-feed warning", () => {
   const snapshot = buildFixtureSnapshot(null, { orderPayload: { rowset: null } });
