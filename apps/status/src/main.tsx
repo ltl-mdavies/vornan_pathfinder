@@ -937,7 +937,7 @@ function DesignQaApp() {
       second.step = printStep;
       second.proofs = second.proofs.map(proof => ({...proof,proof_state:"approved",proof_approval_status:"APPROVED"}));
       second.proof_review_required = false;
-      snapshot.lines.push({...second,line_number:3,order_line_id:10027015,product_name:"Paper Label · outer case",
+      snapshot.lines.push({...second,line_number:3,product_name:"Paper Label · outer case",
         step:approvalStep,proof_review_required:true,latest_proof_status:"PENDING",proofs:[{...first.proofs[0]!,proof_link_low:previewAssetsReady ? "https://status-preview.invalid/public/status/synthetic/proof-asset?line=3&creative=1" : null}]});
       snapshot.proof_summary = {...snapshot.proof_summary!,total:5,pending:3,reviewed:2};
     }
