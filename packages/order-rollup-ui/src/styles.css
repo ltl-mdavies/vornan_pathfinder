@@ -641,6 +641,20 @@
 .order-rollup__proof-filename {
   overflow-wrap: anywhere;
   word-break: break-word;
+  font-size: 0.84rem;
+  font-weight: 500;
+  margin-top: 6px;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.order-rollup__proof-filename:focus-visible {
+  -webkit-line-clamp: unset;
+  outline: 2px solid #345a3e;
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
 .order-rollup__proof-card strong,
@@ -656,10 +670,13 @@
   margin-top: 4px;
   color: #788275;
   font-size: 0.74rem;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .order-rollup__proof-card .order-rollup__proof-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   width: fit-content;
   padding: 2px 7px;
   border-radius: 999px;
@@ -757,7 +774,12 @@
   animation: order-rollup-proof-spinner 0.9s linear infinite;
 }
 .order-rollup__lightbox-loading strong { font-size: 0.92rem; }
+.order-rollup__document-recovery { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 12px; }
+.order-rollup__document-recovery a { align-self: center; color: #315c3b; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.order-rollup__document-recovery a:focus-visible, .order-rollup__document-recovery button:focus-visible { outline: 2px solid #315c3b; outline-offset: 3px; }
+.order-rollup__document-recovery .order-rollup__new-tab-hint { font-size: inherit; font-weight: inherit; }
 .order-rollup__lightbox-loading span { max-width: 360px; color: #687564; font-size: 0.76rem; font-weight: 800; line-height: 1.4; }
+.order-rollup__lightbox-loading .order-rollup__document-recovery-copy { font-weight: 500; }
 .order-rollup__lightbox-canvas.is-error .order-rollup__lightbox-loading { color: #7a463d; }
 
 .order-rollup--public {
@@ -1170,6 +1192,13 @@
 
 .order-rollup__line-heading--public .order-rollup__line-title p {
   font-size: 0.78rem;
+}
+
+.order-rollup__line-heading--public .order-rollup__line-title .order-rollup__line-description {
+  color: #28332b;
+  font-size: 0.88rem;
+  font-weight: 400;
+  overflow-wrap: anywhere;
 }
 
 .order-rollup__line-thumbnail {

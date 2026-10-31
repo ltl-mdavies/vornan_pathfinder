@@ -1,5 +1,17 @@
 import { useEffect, useState } from "react";
 
+/** A slow notice is not a failure and never starts another network request. */
+export function useDocumentLoadingDelay(enabled: boolean, url: string | null, settled: boolean, attempt: number) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (!enabled || settled) return;
+    const timer = window.setTimeout(() => setSlow(true), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [enabled, url, settled, attempt]);
+  return slow;
+}
+
 export function isStatusProofAsset(value: string | null) {
   if (!value) return false;
   try { return /^\/public\/status\/[^/]+\/proof-asset$/.test(new URL(value).pathname); }

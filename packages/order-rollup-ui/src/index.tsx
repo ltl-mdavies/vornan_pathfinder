@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, CheckCircle2, ChevronDown, FileImage, LoaderCircle } from "lucide-react";
-import { isStatusProofAsset, useProofAssetRecovery } from "./proof-asset-recovery.js";
+import { isStatusProofAsset, retryStatusProofAsset, useDocumentLoadingDelay, useProofAssetRecovery } from "./proof-asset-recovery.js";
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
@@ -203,13 +203,29 @@ function proofStateLabel(proof: OrderRollupProof, creativeContext = false) {
   }
 }
 
-function RecoveringThumbnail({ url, compact = false }: { url: string; compact?: boolean }) {
-  const image = useProofAssetRecovery(url);
+export function RecoveringThumbnail({ url, compact = false }: { url: string; compact?: boolean }) {
+  // A refreshed asset identity must reset visibility and recovery state.
+  return <VisibleThumbnail key={url} url={url} compact={compact} />;
+}
+
+function VisibleThumbnail({ url, compact = false }: { url: string; compact?: boolean }) {
+  const frame = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!frame.current) return;
+    if (typeof IntersectionObserver === "undefined") { setVisible(true); return; }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setVisible(true); observer.disconnect(); }
+    }, { rootMargin: "80px" });
+    observer.observe(frame.current);
+    return () => observer.disconnect();
+  }, [url]);
+  const image = useProofAssetRecovery(url, visible, 20_000);
   if (!isStatusProofAsset(url)) return <img src={url} alt="" loading="lazy" />;
   const failed = image.state === "failed" && !image.retrying;
-  return <span className="order-rollup__recovering-thumbnail">
-    <img key={image.src} src={image.src} alt="" loading="lazy" onLoad={image.onLoad} onError={image.onError}
-      style={{ opacity: image.state === "ready" ? 1 : 0 }} />
+  return <span ref={frame} className="order-rollup__recovering-thumbnail">
+    {visible ? <img key={image.src} src={image.src} alt="" decoding="async" onLoad={image.onLoad} onError={image.onError}
+      style={{ opacity: image.state === "ready" ? 1 : 0 }} /> : null}
     {image.state !== "ready" ? <span className="order-rollup__image-note" role="status"
       title={failed ? "Preview unavailable. Open the creative to retry." : "Loading current artwork"}>
       {failed ? <FileImage aria-hidden="true" /> : <LoaderCircle aria-hidden="true" />}
@@ -218,12 +234,31 @@ function RecoveringThumbnail({ url, compact = false }: { url: string; compact?: 
   </span>;
 }
 
+export function SlowDocumentNotice({ url, onRetry }: { url: string; onRetry: () => void }) {
+  const safeUrl = safeProofAssetUrl(url);
+  return <>
+    <strong>This file is taking longer than expected</strong>
+    <span className="order-rollup__document-recovery-copy">We’re still loading it. You can retry here or open the original in a new tab.</span>
+    <div className="order-rollup__document-recovery">
+      <button type="button" onClick={onRetry}>Retry</button>
+      {safeUrl ? <a href={safeUrl} target="_blank" rel="noopener noreferrer">Open original <span className="order-rollup__new-tab-hint">(new tab)</span></a> : null}
+    </div>
+  </>;
+}
+
+export function isCurrentDocumentFrame(frame: { isConnected: boolean }, current: { isConnected: boolean } | null): boolean {
+  return frame.isConnected && frame === current;
+}
+
 function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativeContext = false }: { proof: OrderRollupProof; displayDate: (value?: string | null) => string; allowAssetLinks: boolean; assetsLoading: boolean; creativeContext?: boolean }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
+  const [documentAttempt, setDocumentAttempt] = useState(0);
+  const [documentNonce, setDocumentNonce] = useState(0);
   const dialogTitleId = useId();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const documentFrameRef = useRef<HTMLIFrameElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const lowResolutionUrl = allowAssetLinks ? safeProofAssetUrl(proof.proof_link_low) : null;
   const highResolutionUrl = allowAssetLinks ? safeProofAssetUrl(proof.proof_link_high) : null;
@@ -234,6 +269,8 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
     : null;
   const lightboxUrl = highResolutionUrl ?? previewUrl;
   const lightboxKind = proofAssetKind(lightboxUrl, filename);
+  const documentSlow = useDocumentLoadingDelay(previewOpen && lightboxKind !== "image", lightboxUrl, previewLoaded || previewFailed, documentAttempt);
+  const documentUrl = lightboxUrl ? retryStatusProofAsset(lightboxUrl, documentAttempt, documentNonce) : null;
   const image = useProofAssetRecovery(lightboxUrl, previewOpen && lightboxKind === "image", isStatusProofAsset(lightboxUrl) ? 20_000 : 0);
   const ready = lightboxKind === "image" ? image.state === "ready" : previewLoaded;
   const failed = lightboxKind === "image" ? image.state === "failed" && !image.retrying : previewFailed;
@@ -278,6 +315,13 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
   }, [previewOpen]);
 
   useEffect(() => {
+    setDocumentAttempt(0);
+    setDocumentNonce(0);
+    setPreviewLoaded(false);
+    setPreviewFailed(false);
+  }, [lightboxUrl]);
+
+  useEffect(() => {
     if (!previewOpen) {
       setPreviewLoaded(false);
       setPreviewFailed(false);
@@ -297,10 +341,12 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
               <RecoveringThumbnail key={previewUrl} url={previewUrl} />
             </div>
           )
-        ) : <div className={`order-rollup__proof-empty${assetsLoading ? " is-loading" : ""}`}>{assetsLoading ? "Loading current artwork…" : "Preview unavailable"}</div>}
+        ) : lightboxUrl ? <button className="order-rollup__proof-preview" type="button" onClick={() => setPreviewOpen(true)} aria-label={`Open high-resolution ${assetNoun} ${filename}`}>
+          <span className="order-rollup__proof-empty">Preview unavailable · Open {assetNoun}</span>
+        </button> : <div className={`order-rollup__proof-empty${assetsLoading ? " is-loading" : ""}`}>{assetsLoading ? "Loading current artwork…" : "Preview unavailable"}</div>}
         <div className="order-rollup__proof-card-copy">
-          <strong className="order-rollup__proof-filename">{filename}</strong>
-          <span className="order-rollup__proof-state">{proofStateLabel(proof, creativeContext)}</span>
+          <span className="order-rollup__proof-state">{currentProofApproved ? <CheckCircle2 size={13} aria-hidden="true" /> : null}{proofStateLabel(proof, creativeContext)}</span>
+          <strong className="order-rollup__proof-filename" title={filename} tabIndex={0}>{filename}</strong>
           {proofCreatedAt ? <small>Proof created: {proofCreatedAt}</small> : null}
           {proofApprovedAt ? <small>Proof approved: {proofApprovedAt}</small> : null}
         </div>
@@ -322,8 +368,16 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
               {!ready ? (
                 <div className="order-rollup__lightbox-loading" role="status" aria-live="polite">
                   {failed ? null : <LoaderCircle size={24} strokeWidth={2} aria-hidden="true" />}
-                  <strong>{failed ? `${creativeContext ? "Creative" : "Proof"} preview unavailable` : `Loading high-resolution ${assetNoun}…`}</strong>
-                  <span>{failed ? (isStatusProofAsset(lightboxUrl) ? "The file could not be loaded. Please retry shortly." : "Close this window and try again.") : `Large ${assetNoun} files can take a few seconds to display.`}</span>
+                  {documentSlow && lightboxKind !== "image" ? <SlowDocumentNotice url={lightboxUrl} onRetry={() => {
+                    setPreviewLoaded(false);
+                    setPreviewFailed(false);
+                    setDocumentNonce(Date.now());
+                    setDocumentAttempt((attempt) => attempt + 1);
+                    closeButtonRef.current?.focus();
+                  }} /> : <>
+                    <strong>{failed ? `${creativeContext ? "Creative" : "Proof"} preview unavailable` : `Loading high-resolution ${assetNoun}…`}</strong>
+                    <span>{failed ? (isStatusProofAsset(lightboxUrl) ? "The file could not be loaded. Please retry shortly." : "Close this window and try again.") : `Large ${assetNoun} files can take a few seconds to display.`}</span>
+                  </>}
                   {failed && lightboxKind === "image" && isStatusProofAsset(lightboxUrl) ? <button type="button" onClick={image.retry}>Retry preview</button> : null}
                 </div>
               ) : null}
@@ -337,10 +391,16 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
                 />
               ) : (
                 <iframe
-                  src={lightboxUrl}
+                  ref={documentFrameRef}
+                  key={`${lightboxUrl}:${documentAttempt}`}
+                  src={documentUrl ?? undefined}
                   title={`High-resolution ${assetNoun} ${filename}`}
                   referrerPolicy="no-referrer"
-                  onLoad={() => setPreviewLoaded(true)}
+                  onLoad={(event) => {
+                    // Retries and URL changes remount the iframe. Ignore completion
+                    // from an obsolete frame, including one removed on close.
+                    if (isCurrentDocumentFrame(event.currentTarget, documentFrameRef.current)) setPreviewLoaded(true);
+                  }}
                 />
               )}
             </div>
@@ -783,6 +843,8 @@ function publicOrderSummary(
 
 function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAssetsLoading, publicLayout = false, expanded = false, onExpandedChange }: { line: OrderRollupLine; displayDate: (value?: string | null) => string; showProofs: boolean; allowProofAssetLinks: boolean; proofAssetsLoading: boolean; publicLayout?: boolean; expanded?: boolean; onExpandedChange?: (expanded: boolean) => void }) {
   const lineTitle = line.product_name ?? line.description ?? `Order line ${line.line_number}`;
+  const description = line.description?.trim();
+  const distinctDescription = description && description.replace(/\s+/g, " ").toLowerCase() !== lineTitle.trim().replace(/\s+/g, " ").toLowerCase() ? description : null;
   if (publicLayout) {
     return (
       <details
@@ -794,6 +856,7 @@ function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAs
           <span className="order-rollup__line-number">{line.line_number}</span>
           <div className="order-rollup__line-title">
             <h3>{lineTitle}</h3>
+            {distinctDescription ? <p className="order-rollup__line-description" title="Description from the submitted order">{distinctDescription}</p> : null}
             <p>{[`Qty ${line.quantity ?? "pending"}`, dimensions(line), line.material].filter(Boolean).join(" · ")}</p>
           </div>
           <LineProofThumbnail line={line} allowProofAssetLinks={allowProofAssetLinks} />

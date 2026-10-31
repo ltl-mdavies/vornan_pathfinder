@@ -2,8 +2,32 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { OrderRollup, safeProofAssetUrl } from "@pathfinder/order-rollup-ui";
+import { OrderRollup, safeProofAssetUrl, SlowDocumentNotice, isCurrentDocumentFrame } from "@pathfinder/order-rollup-ui";
 import type { OrderRollupSnapshot } from "@pathfinder/order-rollup";
+
+test("document completion only accepts the current connected iframe", () => {
+  const current = { isConnected: true };
+  const obsolete = { isConnected: true };
+  assert.equal(isCurrentDocumentFrame(current, current), true);
+  assert.equal(isCurrentDocumentFrame(obsolete, current), false, "old retry or old URL completion");
+  assert.equal(isCurrentDocumentFrame(current, null), false, "closed modal");
+  current.isConnected = false;
+  assert.equal(isCurrentDocumentFrame(current, current), false, "detached frame");
+});
+
+test("slow document recovery is manual, safe and announces a new tab", () => {
+  let retries = 0;
+  const markup = renderToStaticMarkup(<SlowDocumentNotice url="https://api.example/public/status/synthetic/proof-asset?asset_kind=pdf" onRetry={() => retries++} />);
+  assert.match(markup, /taking longer than expected/);
+  assert.match(markup, />Retry</);
+  assert.match(markup, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(markup, /Open original/);
+  assert.match(markup, /new tab/);
+  assert.doesNotMatch(markup, /<iframe|<img/);
+  assert.equal(retries, 0);
+  const unsafe = renderToStaticMarkup(<SlowDocumentNotice url="javascript:alert(1)" onRetry={() => {}} />);
+  assert.doesNotMatch(unsafe, /href=|javascript:/);
+});
 
 function realSiblingSnapshot(): OrderRollupSnapshot {
   return {
@@ -98,6 +122,63 @@ function realSiblingSnapshot(): OrderRollupSnapshot {
     refreshed_at: "2026-07-20T12:00:00.000Z"
   };
 }
+
+test("public line description is distinct, escaped, and not inferred from artwork", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0].product_name = "Paper Label";
+  snapshot.lines[0].description = "SKU-123 <Front>";
+  let markup = renderToStaticMarkup(<OrderRollup snapshot={snapshot} audience="public" />);
+  assert.match(markup, /order-rollup__line-description/);
+  assert.match(markup, /SKU-123 &lt;Front&gt;/);
+  snapshot.lines[0].description = "  paper   label ";
+  markup = renderToStaticMarkup(<OrderRollup snapshot={snapshot} audience="public" />);
+  assert.doesNotMatch(markup, /order-rollup__line-description/);
+});
+
+test("approved badge precedes accessible filename without eager high-res content", () => {
+  const markup = renderToStaticMarkup(<OrderRollup snapshot={realSiblingSnapshot()} audience="public" allowProofAssetLinks />);
+  assert.ok(markup.indexOf("order-rollup__proof-state") < markup.indexOf("order-rollup__proof-filename"));
+  assert.match(markup, /order-rollup__proof-filename" title=/);
+  assert.doesNotMatch(markup, /role="dialog"/);
+});
+
+test("token-bound thumbnails are not requested before viewport admission", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0].proofs.forEach((proof) => {
+    proof.proof_link_low = "https://api.example/public/status/synthetic/proof-asset?asset_kind=thumbnail";
+    proof.preview_kind = "image";
+  });
+  const markup = renderToStaticMarkup(<OrderRollup snapshot={snapshot} audience="public" allowProofAssetLinks />);
+  assert.doesNotMatch(markup, /<img[^>]+src="https:\/\/api.example\/public\/status/);
+  assert.match(markup, /Loading current artwork/);
+});
+
+test("both public thumbnail locations use low-res images while the original is a PDF", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0].proofs.forEach((proof) => {
+    proof.proof_link_low = "https://assets.example.invalid/preview.jpg";
+    proof.proof_link_high = "https://assets.example.invalid/original.pdf";
+    proof.preview_kind = "image";
+  });
+  const markup = renderToStaticMarkup(<OrderRollup snapshot={snapshot} audience="public" allowProofAssetLinks />);
+  const previews = markup.match(/<img[^>]+src="https:\/\/assets.example.invalid\/preview.jpg"/g) ?? [];
+  assert.equal(previews.length, snapshot.lines[0].proofs.length + 1);
+  assert.doesNotMatch(markup, /<iframe|<img[^>]+src="[^"]*original.pdf/);
+  assert.match(markup, /Open high-resolution creative/);
+});
+
+test("missing low resolution keeps explicit original access and keyboard-readable filename", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0].proofs.forEach((proof) => {
+    proof.proof_link_low = null;
+    proof.proof_link_high = "https://assets.example.invalid/original.png";
+  });
+  const markup = renderToStaticMarkup(<OrderRollup snapshot={snapshot} audience="public" allowProofAssetLinks />);
+  assert.match(markup, /Preview unavailable · Open creative/);
+  assert.match(markup, /Open high-resolution creative/);
+  assert.match(markup, /order-rollup__proof-filename"[^>]*tabindex="0"/);
+  assert.doesNotMatch(markup, /<img[^>]+src="https:\/\/assets.example.invalid\/original.png/);
+});
 
 test("renders the four real-shape sibling proofs as distinct view-only gallery cards", () => {
   const markup = renderToStaticMarkup(
@@ -245,7 +326,8 @@ test("uses one safe proof control with high-resolution preference and low-resolu
     <OrderRollup snapshot={snapshot} audience="internal" displayDate={(value) => value ?? "Not available"} />
   );
 
-  assert.equal((markup.match(/aria-label="Open high-resolution proof /g) ?? []).length, 2);
+  // A safe original remains explicitly openable even when its low-res URL is rejected.
+  assert.equal((markup.match(/aria-label="Open high-resolution proof /g) ?? []).length, 3);
   assert.doesNotMatch(markup, /href="https:\/\/proof-assets\.example\.invalid/);
   assert.doesNotMatch(markup, /Open full resolution/);
   assert.doesNotMatch(markup, /javascript:alert/);
