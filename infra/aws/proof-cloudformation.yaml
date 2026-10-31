@@ -2,6 +2,21 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Vornan Proof read-only foundation - dedicated core persistence and isolated public API boundary.
 
 Parameters:
+  StatusHandoffLtlDemoEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable isolated view-only Status handoff for verified LTL Demo customer 1249 only.
+  StatusReviewerSigninEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable verified reviewer promotion for the exact LTL Demo reviewer, never other Status viewers.
+  StatusParentTokensTableName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9_.-]{3,255}$"
+    Description: Existing same-account regional Status token table; GetItem only, no scans or writes.
   StatusReviewerRuntimePrepared:
     Type: String
     Default: "false"
@@ -262,6 +277,7 @@ Parameters:
     AllowedValues: [14, 30, 60, 90, 120, 180, 365]
 
 Conditions:
+  StatusHandoffActive: !Equals [!Ref StatusHandoffLtlDemoEnabled, "true"]
   PrepareStatusReviewerRuntime: !Equals [!Ref StatusReviewerRuntimePrepared, "true"]
   StatusReviewerCspPrepared: !Not [!Equals [!Ref StatusReviewerFirebaseProjectId, ""]]
   HasPublicFunctionCodeOverride: !Not [!Equals [!Ref PublicFunctionCodeS3Key, ""]]
@@ -303,6 +319,24 @@ Conditions:
     - !Condition LtlDemoQaSessionReadActive
 
 Rules:
+  StatusHandoffRequiresParentAuthority:
+    RuleCondition: !Equals [!Ref StatusHandoffLtlDemoEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref StatusParentTokensTableName, ""]]
+        AssertDescription: Status handoff requires a live parent-token authority table.
+      - Assert: !Not [!Equals [!Ref PathfinderCustomerWorkspacesTableName, ""]]
+        AssertDescription: Status handoff requires live customer policy revalidation.
+      - Assert: !Equals [!Ref LtlDemoQaEnabled, "true"]
+        AssertDescription: Status handoff is limited to the LTL Demo QA profile.
+      - Assert: !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
+        AssertDescription: Status handoff requires existing LTL Demo read access.
+  StatusReviewerRequiresPreparedHandoff:
+    RuleCondition: !Equals [!Ref StatusReviewerSigninEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref StatusHandoffLtlDemoEnabled, "true"]
+        AssertDescription: Reviewer sign-in requires the isolated Status handoff.
+      - Assert: !Equals [!Ref StatusReviewerRuntimePrepared, "true"]
+        AssertDescription: Reviewer sign-in requires the reviewed keyless verifier configuration.
   StatusReviewerRuntimeProject:
     RuleCondition: !Equals [!Ref StatusReviewerRuntimePrepared, "true"]
     Assertions:
@@ -1080,6 +1114,12 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              - !If
+                - StatusHandoffActive
+                - Effect: Allow
+                  Action: dynamodb:GetItem
+                  Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StatusParentTokensTableName}"
+                - !Ref "AWS::NoValue"
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -1234,6 +1274,9 @@ Resources:
       Environment:
         Variables:
           FIREBASE_PROJECT_ID: !If [PrepareStatusReviewerRuntime, !Ref StatusReviewerFirebaseProjectId, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO: !If [StatusHandoffActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN: !Ref StatusReviewerSigninEnabled
+          PATHFINDER_PROOF_STATUS_PARENT_TOKENS_TABLE: !If [StatusHandoffActive, !Ref StatusParentTokensTableName, !Ref "AWS::NoValue"]
           GOOGLE_CLOUD_PROJECT: !If [PrepareStatusReviewerRuntime, !Ref StatusReviewerFirebaseProjectId, !Ref "AWS::NoValue"]
           GOOGLE_APPLICATION_CREDENTIALS: !If [PrepareStatusReviewerRuntime, "/var/task/proof-reviewer-external-account.json", !Ref "AWS::NoValue"]
           PATHFINDER_RUNTIME: lambda

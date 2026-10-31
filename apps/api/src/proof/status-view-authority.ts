@@ -1,5 +1,6 @@
 import type { ProofAccessGrant } from "@pathfinder/proof-domain";
-import { getOrderStatusToken, getWorkspace, type OrderStatusTokenRecord } from "../store.js";
+import type { OrderStatusTokenRecord } from "../store.js";
+import { readStatusParent } from "./status-parent-reader.js";
 import { getProofOrder } from "./store.js";
 import { LTL_DEMO_STATUS_REVIEWER } from "./status-reviewer-authorization.js";
 
@@ -29,9 +30,9 @@ export async function validateStatusViewParent(grant: ProofAccessGrant, now: Dat
   if (!grant.status_origin) return true;
   if (process.env.PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO !== "true") return false;
   if (grant.status_reviewer && process.env.PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN !== "true") return false;
-  const [parent, workspace, order] = await Promise.all([
-    getOrderStatusToken(grant.status_origin.token_hash), getWorkspace(grant.status_origin.customer_id), getProofOrder(grant.order_number)
+  const [{ parent, visibility }, order] = await Promise.all([
+    readStatusParent(grant.status_origin.token_hash, grant.status_origin.customer_id), getProofOrder(grant.order_number)
   ]);
   return order?.customer_id === "1249" && !(order.lines.length > 0 && order.lines.every(line => line.cancelled))
-    && statusParentAllows(grant, parent, workspace?.status_access_policy.proof_visibility, now);
+    && statusParentAllows(grant, parent, visibility, now);
 }
