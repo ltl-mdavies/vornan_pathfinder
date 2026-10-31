@@ -1100,6 +1100,8 @@ export interface PublicOrderStatusSnapshot {
   };
   proof_summary?: OrderRollupProofSummary | null;
   proof_visibility: StatusProofVisibility;
+  /** Backend-verified presentation capability; never an authorization grant. */
+  proofing_enabled?: boolean;
   shipment_summary?: OrderRollupShipmentSummary | null;
   lines: Array<{
     line_number: number;

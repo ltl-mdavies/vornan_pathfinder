@@ -1,4 +1,5 @@
 import {configuredCatalogRecordRouter} from './catalog-records/configured-router.js';
+import { statusProofingEnabled } from "./status-proof-capability.js";
 import { statusHandoffUrl } from "./proof/status-handoff.js";
 import { freshStatusProofSummary } from "./proof/status-fresh-summary.js";
 import { createStatusProofView } from "./proof/status-view-service.js";
@@ -2122,7 +2123,7 @@ async function buildInternalOrderSnapshotForJob(
 export function applyPublicProofVisibility(
   snapshot: PublicOrderStatusSnapshot,
   proofVisibility: StatusProofVisibility,
-  options: { include_transient_proof_assets?: boolean; verified_handoff_customer_id?: string } = {}
+  options: { include_transient_proof_assets?: boolean; verified_handoff_customer_id?: string; proof_workspace?: PathfinderCustomerWorkspace; proof_customer_id?: string } = {}
 ): PublicOrderStatusSnapshot {
   const showProofStatus = proofVisibility !== "off";
   const orderCancelled = snapshot.lifecycle?.state === "cancelled";
@@ -2148,6 +2149,7 @@ export function applyPublicProofVisibility(
     ...snapshot,
     issues: customerSafeIssuesFromSourceStatus(snapshot.source_status),
     proof_visibility: proofVisibility,
+    proofing_enabled: statusProofingEnabled(snapshot, options.proof_workspace, options.proof_customer_id),
     proof_summary: showProofStatus && snapshot.proof_summary
       ? {
           ...snapshot.proof_summary,
@@ -2374,7 +2376,9 @@ async function refreshPublicStatusOrder(binding: {
     if ("error" in result) {
       if (!previous) return null;
       const checkedAt = new Date().toISOString();
-      const snapshot = applyPublicProofVisibility(previous, workspace.status_access_policy.proof_visibility);
+      const snapshot = applyPublicProofVisibility(previous, workspace.status_access_policy.proof_visibility, {
+        proof_workspace: workspace, proof_customer_id: binding.customer_id
+      });
       emitPublicStatusRefreshTelemetry({
         binding,
         snapshot,
@@ -2396,9 +2400,11 @@ async function refreshPublicStatusOrder(binding: {
         shipping: result.snapshot.lookups.shipping?.ok === true
       }),
       workspace.status_access_policy.proof_visibility,
-      { include_transient_proof_assets: true }
+      { include_transient_proof_assets: true, proof_workspace: workspace, proof_customer_id: binding.customer_id }
     );
-    const durableSnapshot = applyPublicProofVisibility(merged, workspace.status_access_policy.proof_visibility);
+    const durableSnapshot = applyPublicProofVisibility(merged, workspace.status_access_policy.proof_visibility, {
+      proof_workspace: workspace, proof_customer_id: binding.customer_id
+    });
     if (previous?.refreshed_at !== durableSnapshot.refreshed_at) {
       await persistPublicOrderStatusSnapshot(durableSnapshot);
     }
@@ -4276,7 +4282,7 @@ app.get("/public/status/:token", async (req, res) => {
           const customer = await findLiftCustomer(order.customer_id);
           const workspace = await getOrCreateWorkspace(customer);
           return applyPublicProofVisibility(snapshot, workspace.status_access_policy.proof_visibility, {
-            verified_handoff_customer_id: String(order.customer_id)
+            verified_handoff_customer_id: String(order.customer_id), proof_workspace: workspace, proof_customer_id: String(order.customer_id)
           });
         } catch {
           return applyPublicProofVisibility(snapshot, "off");
