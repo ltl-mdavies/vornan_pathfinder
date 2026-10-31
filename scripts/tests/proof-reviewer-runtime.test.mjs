@@ -27,6 +27,8 @@ test('runtime is default-off and isolated from workers and activation', () => {
     assert.equal(template.split(`${name}:`).length,2);
   }
   assert.ok(publicBlock.includes('/var/task/proof-reviewer-external-account.json'));
-  assert.equal(template.includes('PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN:'),false);
-  assert.equal(template.includes('PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO:'),false);
+  assert.match(template,/StatusReviewerSigninEnabled:\n    Type: String\n    Default: "false"/);
+  assert.match(template,/StatusHandoffLtlDemoEnabled:\n    Type: String\n    Default: "false"/);
+  assert.ok(publicBlock.includes('PATHFINDER_PROOF_STATUS_REVIEWER_SIGNIN: !Ref StatusReviewerSigninEnabled'));
+  assert.ok(publicBlock.includes('PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO: !If [StatusHandoffActive,'));
 });

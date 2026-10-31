@@ -1,4 +1,5 @@
 import { withoutOperationsWorkspace } from "./fixtures/operations-workspace.mjs";
+import { withoutStatusHandoff } from "./fixtures/status-handoff.mjs";
 import { withoutIntakeDiagnostics } from "./fixtures/intake-diagnostics.mjs";
 import { withoutJsonArtworkRead } from "./fixtures/json-artwork-permission.mjs";
 import { withoutWorkspacePacking } from "./fixtures/workspace-table-packing.mjs";
@@ -10,7 +11,7 @@ import { parseTemplate, evaluateTemplate } from "../intake-storage-template.mjs"
 import { checkCandidateEnvironment } from "../intake-environment-preflight.mjs";
 import { captureVariables as vars } from "./fixtures/intake-capture-config.mjs";
 import { shadowKeys, withoutShadow } from "./fixtures/intake-shadow-config.mjs";
-const template = withoutOperationsWorkspace(parseTemplate(readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8")));
+const template = withoutStatusHandoff(withoutOperationsWorkspace(parseTemplate(readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"))));
 const prior = withoutShadow(template);
 const canonical = v => Array.isArray(v) ? v.map(canonical) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canonical(v[k])])) : v;
 const evaluate = (params = {}) => evaluateTemplate(template, params, { validateParameters: true, rules: Object.keys(template.Rules) });

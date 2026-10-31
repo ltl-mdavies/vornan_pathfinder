@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
 
 Parameters:
+  ProofStatusHandoffLtlDemoEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable Status view-only grant creation for verified LTL Demo customer 1249 only; no reviewer promotion in the main API.
   OperationsWorkspaceEnabled:
     Type: String
     Default: "false"
@@ -944,6 +949,7 @@ Rules:
         AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
+  ProofStatusHandoffActive: !Equals [!Ref ProofStatusHandoffLtlDemoEnabled, "true"]
   OperationsWorkspaceActive: !Equals [!Ref OperationsWorkspaceEnabled, "true"]
   IntakeShadowActive: !And
     - !Equals [!Ref IntakeShadowEnabled, "true"]
@@ -1524,6 +1530,7 @@ Resources:
           PATHFINDER_PROOF_CORE_TABLE: !If [HasProofCoreTable, !Ref ProofCoreTableName, !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_AUDIT_TABLE: !If [HasProofAuditTable, !Ref ProofAuditTableName, !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_ENABLE_GRANT_CREATION: !Ref ProofGrantCreationEnabled
+          PATHFINDER_PROOF_STATUS_HANDOFF_LTL_DEMO: !If [ProofStatusHandoffActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref ProofGrantAllowedCustomerIds
           PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ProofReadOnlyActivationExpiresAt
           PATHFINDER_PROOF_ENABLE_LINK_EMAIL: !Ref ProofLinkEmailEnabled
