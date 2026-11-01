@@ -505,6 +505,7 @@ h1, h2, h3, p { margin-top: 0; }
 .history-version-meta > span { min-width: 0; display: grid; gap: 4px; }
 .history-version-meta small { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
 .history-version-meta strong { color: var(--ink); font-size: 11px; overflow-wrap: anywhere; }
+.history-version-meta strong.history-approval-pending { justify-self: start; align-self: start; padding: 4px 10px; border: 1px solid #e4cfaa; border-radius: 999px; background: #fff8ea; color: #624d2c; line-height: 1.25; }
 .technical-checks { display: grid; gap: 7px; }
 .technical-checks h3 { margin: 0; color: var(--forest); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
 .technical-checks ul { margin: 0; padding: 0; display: grid; gap: 5px; list-style: none; }

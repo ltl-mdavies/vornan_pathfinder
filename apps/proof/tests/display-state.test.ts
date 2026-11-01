@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { proofApprovalTimestamp, proofOrderDisplayStatus, proofOrderDisplayTitle } from "../src/display-state.ts";
+import { canUseDetailedReports, historyApprovalLabel, proofApprovalTimestamp, proofOrderDisplayStatus, proofOrderDisplayTitle } from "../src/display-state.ts";
+
+test("report actions require existing review access and exclude Status-entry sessions", () => {
+  assert.equal(canUseDetailedReports(undefined), false);
+  assert.equal(canUseDetailedReports({ scope: "view", decisions_enabled: false }), false);
+  assert.equal(canUseDetailedReports({ scope: "review", decisions_enabled: false }), true);
+  assert.equal(canUseDetailedReports({ scope: "review", decisions_enabled: true, status_entry: true }), false);
+});
+
+test("history pending label matches Status without relabeling other approval states", () => {
+  assert.equal(historyApprovalLabel(" pending "), "Pending Art Approval");
+  for (const value of ["APPROVED", "REJECTED", "REVISION"]) assert.equal(historyApprovalLabel(value), value);
+  for (const value of [null, undefined, " "]) assert.equal(historyApprovalLabel(value), "Not recorded");
+});
 
 test("approval timestamps are shown only with authoritative approved status", () => {
   const version = { approval_status: "PENDING", proof_approved_ts: "2026-10-29T12:26:00Z", approved_at: "2026-10-29" };
