@@ -25,4 +25,15 @@ test("filter preserves mounted thumbnails and uses visible lines for expansion",
   assert.match(source,/for \(const line of visibleLines\)/);
   assert.match(source,/SharedRowThumbnail/);
   assert.match(source,/Show all lines/);
+  assert.match(source,/const proofControls = audience === "public";/);
+  assert.match(source,/Pending approval \(/);
+  assert.match(source,/No lines are pending approval\./);
+  assert.doesNotMatch(source,/Line progress may vary\./);
+});
+test("pending Creative badge matches the line chip without changing other proof states", () => {
+  const source=readFileSync(new URL('../../../packages/order-rollup-ui/src/index.tsx',import.meta.url),'utf8');
+  const css=readFileSync(new URL('../../../packages/order-rollup-ui/src/styles.css',import.meta.url),'utf8');
+  assert.match(source,/creativeContext \? "Pending Art Approval" : "Awaiting review"/);
+  assert.match(source,/creativeContext && proofStateLabel\(proof, creativeContext\) === "Pending Art Approval"/);
+  assert.match(css,/\.order-rollup__proof-state--pending-approval,\s*\.order-rollup--public \.order-rollup__line-card--public \.order-rollup__status--pending-proof/);
 });

@@ -1445,42 +1445,46 @@
   .order-rollup__shipment-tracking-list article > div { align-items: start; flex-direction: column; gap: 3px; }
   .order-rollup__shipment-tracking-list article > div span { text-align: left; }
 }
+.order-rollup--public .order-rollup__proof-card .order-rollup__proof-state--pending-approval,
 .order-rollup--public .order-rollup__line-card--public .order-rollup__status--pending-proof {
   background: #fff8ea;
   border-color: #e4cfaa;
   color: #624d2c;
 }
+.order-rollup--public .order-rollup__proof-card .order-rollup__proof-state--pending-approval {
+  border: 1px solid #e4cfaa;
+  font-weight: 800;
+}
 .order-rollup--public .order-rollup__proof-filter {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid #dce3d7;
-  border-radius: 8px;
-  background: #f6f7f2;
+  gap: 10px;
 }
 .order-rollup--public .order-rollup__proof-filter button {
   min-height: 34px;
-  padding: 6px 10px;
+  padding: 6px 4px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: #596653;
+  color: #39523b;
   font: inherit;
-  font-size: .8rem;
+  font-size: .75rem;
+  font-weight: 800;
   cursor: pointer;
 }
 .order-rollup--public .order-rollup__proof-filter button[aria-pressed="true"] {
-  background: #fff;
   color: #24432c;
-  box-shadow: 0 1px 3px #233d2520;
+  text-decoration: underline;
+  text-underline-offset: 5px;
+  text-decoration-thickness: 2px;
 }
+.order-rollup--public .order-rollup__proof-filter button:hover { color: #1f4328; background: #f3f7f1; }
 .order-rollup--public .order-rollup__proof-filter button:focus-visible,
 .order-rollup--public .order-rollup__proof-empty button:focus-visible {
   outline: 2px solid #39563c;
   outline-offset: 2px;
 }
-.order-rollup--public .order-rollup__proof-empty { padding: 20px 12px; color: #596653; }
+.order-rollup--public .order-rollup__proof-empty { width: auto; height: auto; padding: 20px 12px; color: #596653; }
 .order-rollup--public .order-rollup__proof-empty button {
   background: none; border: 0; color: #24432c; font: inherit; text-decoration: underline; cursor: pointer;
 }
