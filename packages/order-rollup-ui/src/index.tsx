@@ -188,7 +188,7 @@ function proofStateLabel(proof: OrderRollupProof, creativeContext = false) {
   const approvalStatus = proof.proof_approval_status?.trim().toLowerCase();
   if (creativeContext && approvalStatus) {
     if (approvalStatus === "approved") return "Proof approved";
-    if (approvalStatus === "pending" || approvalStatus === "awaiting approval") return "Proof needs approval";
+    if (approvalStatus === "pending" || approvalStatus === "awaiting approval") return "Pending Art Approval";
     return `Proof ${approvalStatus}`;
   }
   if (proof.proof_approval_status) return proof.proof_approval_status;
@@ -200,7 +200,7 @@ function proofStateLabel(proof: OrderRollupProof, creativeContext = false) {
     case "cancelled": return "Cancelled";
     case "missing": return "Unavailable";
     case "error": return "File unavailable";
-    default: return creativeContext ? "Proof needs approval" : "Awaiting review";
+    default: return creativeContext ? "Pending Art Approval" : "Awaiting review";
   }
 }
 
@@ -367,7 +367,7 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
           <span className="order-rollup__proof-empty">Preview unavailable · Open {assetNoun}</span>
         </button> : <div className={`order-rollup__proof-empty${assetsLoading ? " is-loading" : ""}`}>{assetsLoading ? "Loading current artwork…" : "Preview unavailable"}</div>}
         <div className="order-rollup__proof-card-copy">
-          <span className="order-rollup__proof-state">{currentProofApproved ? <CheckCircle2 size={13} aria-hidden="true" /> : null}{proofStateLabel(proof, creativeContext)}</span>
+          <span className={`order-rollup__proof-state${creativeContext && proofStateLabel(proof, creativeContext) === "Pending Art Approval" ? " order-rollup__proof-state--pending-approval" : ""}`}>{currentProofApproved ? <CheckCircle2 size={13} aria-hidden="true" /> : null}{proofStateLabel(proof, creativeContext)}</span>
           <strong className="order-rollup__proof-filename" title={filename} tabIndex={0}>{filename}</strong>
           {proofCreatedAt ? <small>Proof created: {proofCreatedAt}</small> : null}
           {proofApprovedAt ? <small>Proof approved: {proofApprovedAt}</small> : null}
@@ -968,7 +968,8 @@ export function OrderRollup({
 }) {
   const [publicExpandedLines, setPublicExpandedLines] = useState<Set<string>>(() => new Set());
   const [proofFilter, setProofFilter] = useState<{ order: string; pending: boolean }>({ order: snapshot.order_number, pending: false });
-  const proofControls = audience === "public" && pendingProofControlsEnabled(snapshot);
+  // Filtering visible line statuses does not grant access to Proof or its actions.
+  const proofControls = audience === "public";
   const pendingOnly = proofControls && proofFilter.order === snapshot.order_number && proofFilter.pending;
   const pendingLines = snapshot.lines.filter(isPendingProofLine);
   const visibleLines = pendingOnly ? pendingLines : snapshot.lines;
@@ -1056,9 +1057,8 @@ export function OrderRollup({
               <div className="order-rollup__lines-heading-actions">
                 {proofControls ? <div className="order-rollup__proof-filter" role="group" aria-label="Filter order lines">
                   <button type="button" aria-pressed={!pendingOnly} onClick={() => setProofFilter({order: snapshot.order_number, pending: false})}>All lines</button>
-                  <button type="button" aria-pressed={pendingOnly} onClick={() => setProofFilter({order: snapshot.order_number, pending: true})}>Pending proof ({pendingLines.length})</button>
+                  <button type="button" aria-pressed={pendingOnly} onClick={() => setProofFilter({order: snapshot.order_number, pending: true})}>Pending approval ({pendingLines.length})</button>
                 </div> : null}
-                <span>Line progress may vary.</span>
                 <button
                   type="button"
                   disabled={visibleLines.length === 0}
@@ -1077,7 +1077,7 @@ export function OrderRollup({
               </div>
             </div>
             <div className="order-rollup__lines">
-              {pendingOnly && visibleLines.length === 0 ? <div className="order-rollup__proof-empty" role="status">No lines are pending proof. <button type="button" onClick={() => setProofFilter({order: snapshot.order_number, pending: false})}>Show all lines</button></div> : null}
+              {pendingOnly && visibleLines.length === 0 ? <div className="order-rollup__proof-empty" role="status">No lines are pending approval. <button type="button" onClick={() => setProofFilter({order: snapshot.order_number, pending: false})}>Show all lines</button></div> : null}
               {snapshot.lines.map((line) => {
                 const key = publicLineKey(line);
                 return (
@@ -1089,7 +1089,7 @@ export function OrderRollup({
                     allowProofAssetLinks={allowProofAssetLinks}
                     proofAssetsLoading={proofAssetsLoading}
                     publicLayout
-                    pendingProof={proofControls && isPendingProofLine(line)}
+                    pendingProof={pendingProofControlsEnabled(snapshot) && isPendingProofLine(line)}
                     expanded={publicExpandedLines.has(key)}
                     onExpandedChange={(nextExpanded) => setPublicExpandedLines((current) => {
                       const next = new Set(current);
