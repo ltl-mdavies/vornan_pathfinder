@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, FileText, X } from "lucide-react";
-import { loadDetailedReport, startDetailedReport } from "./api";
+import { loadDetailedReport, startDetailedReport, ProofApiError } from "./api";
 import type { ProofDetailedReport, ProofTask, ProofVersion } from "./types";
+
+export function detailedReportError(error: unknown) {
+  if (error instanceof ProofApiError) {
+    if (error.status === 401) return { message: "Your review session has ended. Reopen your authorized Proof link.", retryable: false };
+    if (error.status === 403) return { message: "Detailed reports are unavailable for this session. Contact support if you expected access.", retryable: false };
+    if (error.status === 409) return { message: "This proof has changed. Refresh Proof before requesting its report.", retryable: false };
+  }
+  return { message: "This report couldn’t be generated. Try again.", retryable: true };
+}
 
 export function detailedReportOptionStatus(ready: boolean, generating: boolean, failed = false) {
   if (generating) return { description: "Generating report…", action: "Generating…" };
@@ -18,6 +27,7 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
   const definition = definitions.find((candidate) => candidate.definition_id === selectedDefinitionId) ?? definitions[0] ?? null;
   const [report, setReport] = useState<ProofDetailedReport | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [accessBlocked, setAccessBlocked] = useState(false);
   const [startingDefinitionId, setStartingDefinitionId] = useState<string | null>(null);
   const [selectionOpen, setSelectionOpen] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -27,6 +37,7 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
   useEffect(() => {
     setReport(null);
     setMessage(null);
+    setAccessBlocked(false);
     setStartingDefinitionId(null);
     setSelectedDefinitionId(null);
     setSelectionOpen(false);
@@ -55,8 +66,10 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
             setViewerOpen(true);
           }
         })
-        .catch(() => {
-          setMessage("We’re still preparing your report. Try again shortly.");
+        .catch((error: unknown) => {
+          const feedback = detailedReportError(error);
+          setMessage(feedback.message);
+          setAccessBlocked(!feedback.retryable);
           setReport((current) => current ? { ...current, state: "failed" } : current);
         });
     }, 5_000);
@@ -87,15 +100,17 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
   }
 
   function chooseDefinition(candidate: NonNullable<typeof definition>) {
-    if (startingDefinitionId) return;
+    if (startingDefinitionId || accessBlocked) return;
     setSelectedDefinitionId(candidate.definition_id);
     setMessage(null);
     setStartingDefinitionId(candidate.definition_id);
     void startDetailedReport(task.task_id, candidate.definition_id)
       .then(({ report: next }) => openReport(next))
-      .catch(() => {
+      .catch((error: unknown) => {
+        const feedback = detailedReportError(error);
         setReport({ record_id: "", definition_id: candidate.definition_id, label: candidate.label, state: "failed", view_url: null });
-        setMessage("This report couldn’t be generated. Try again.");
+        setMessage(feedback.message);
+        setAccessBlocked(!feedback.retryable);
       })
       .finally(() => setStartingDefinitionId(null));
   }
@@ -103,7 +118,7 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
   return (
     <>
       <button className="button secondary compact detailed-report-trigger" type="button" disabled={generating} onClick={() => {
-        setMessage(null);
+        if (!accessBlocked) setMessage(null);
         if (hasMultipleDefinitions) setSelectionOpen(true);
         else if (report?.state === "ready" && report.view_url) setViewerOpen(true);
         else setSelectionOpen(true);
@@ -127,9 +142,11 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
         <div className="detailed-report-options" aria-busy={generating}>
           {definitions.map((candidate) => {
             const failed = report?.definition_id === candidate.definition_id && ["failed", "timed_out"].includes(report.state);
-            const optionStatus = detailedReportOptionStatus(candidate.ready, generatingDefinitionId === candidate.definition_id, failed);
+            const optionStatus = accessBlocked
+              ? { description: "Report access unavailable", action: "Unavailable" }
+              : detailedReportOptionStatus(candidate.ready, generatingDefinitionId === candidate.definition_id, failed);
             return (
-              <button key={candidate.definition_id} className="detailed-report-option" type="button" disabled={generating} onClick={() => chooseDefinition(candidate)}>
+              <button key={candidate.definition_id} className="detailed-report-option" type="button" disabled={generating || accessBlocked} onClick={() => chooseDefinition(candidate)}>
                 <FileText aria-hidden="true" />
                 <span><strong>{candidate.label ?? "Detailed report"}</strong><small>{optionStatus.description}</small></span>
                 <span className="detailed-report-option-action">{optionStatus.action}</span>

@@ -17,6 +17,18 @@ const session = {
   capability: { proof_customer_id: "1249" }
 } as any;
 
+test("view-only links cannot start or poll reports and never reach Lift", async () => {
+  let focusedReads = 0;
+  const service = createProofDetailedReportService({
+    getOrder: async () => order,
+    focusedRead: async () => { focusedReads += 1; throw new Error("must not reach Lift"); }
+  });
+  const input = { session: { ...session, scope: "view" }, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" };
+  await assert.rejects(() => service.begin(input), /not available/);
+  await assert.rejects(() => service.check(input), /not available/);
+  assert.equal(focusedReads, 0);
+});
+
 test("detailed reports fail closed before the focused Lift read for another customer", async () => {
   let focusedReads = 0;
   const service = createProofDetailedReportService({

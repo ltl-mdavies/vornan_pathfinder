@@ -3,7 +3,8 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
-import { DetailedReportButton, detailedReportOptionStatus } from "../src/detailed-report-button.tsx";
+import { DetailedReportButton, detailedReportError, detailedReportOptionStatus } from "../src/detailed-report-button.tsx";
+import { ProofApiError } from "../src/api.ts";
 import type { ProofTask, ProofVersion } from "../src/types.ts";
 
 const version: ProofVersion = {
@@ -38,6 +39,18 @@ const task: ProofTask = {
   current_version: version,
   versions: [version]
 };
+
+test("access and stale-session errors do not encourage repeated generation requests", () => {
+  for (const status of [401, 403, 409]) {
+    const feedback = detailedReportError(new ProofApiError("private provider details", status));
+    assert.equal(feedback.retryable, false);
+    assert.doesNotMatch(feedback.message, /private provider|Try again/);
+  }
+  assert.match(detailedReportError(new ProofApiError("denied", 403)).message, /unavailable for this session/);
+  for (const error of [new ProofApiError("provider", 502), new Error("network")]) {
+    assert.equal(detailedReportError(error).retryable, true);
+  }
+});
 
 test("moves detailed report selection into a modal without changing the toolbar height", () => {
   const markup = renderToStaticMarkup(createElement(DetailedReportButton, { task, version }));
