@@ -1,4 +1,5 @@
 import React from "react";
+import "../../packages/ui/compass-loader/compass-loader.js";
 import { createRoot } from "react-dom/client";
 import fixtures from "./fixtures.json";
 import { proofLines, proofHealth, cachedProofOrder } from "./proof-fixtures";

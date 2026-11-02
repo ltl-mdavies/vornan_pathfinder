@@ -1,3 +1,36 @@
+# Startup compass local trial — November 2, 2026
+
+final result: passed
+
+## Scope and visual truth
+Source: /Users/marcusdavies/.codex/visualizations/2026/10/23/01a16a35-2fc7-7a62-8945-f6c7f25a1638/compass-startup-motion-preview.jpg (1835×1101 Motion Studio configuration, not a full startup screen mockup).
+Implementation: http://127.0.0.1:5482/tests/startup-compass-review.html
+Screenshots: /Users/marcusdavies/.codex/visualizations/2026/08/10/019fed7e-564d-7080-9719-ac8c8bcf334c/startup-compass-desktop.png (1366×768), startup-compass-mobile.png (390×844), 1 pixel per CSS pixel.
+State: persistent synthetic startup using the real PathfinderStartup component, no authentication or live data access. No production delay added.
+
+## Comparison
+Reference and settled desktop capture viewed together. Only compass styling is taken from Motion Studio; neutral app background and shell are intentionally retained. The full source screen is not replicated. Source asset copied byte-for-byte (cmp passed), no image approximation. Computed component size 56×56, Forest rgb(57,82,59), diagonal Zinnia rgb(171,198,95), animation durations 24/16/12 seconds confirm half-speed settings. Simplified detail attribute retained.
+Typography: existing app heading font/weight unchanged. Layout: compact 12px gap with vertically centered heading; header/rail stationary. Colors: prescribed foreground tokens, existing neutral background. Asset: approved vector remains sharp at desktop/mobile. Copy: only Opening Pathfinder… remains for ordinary initial loading; customer copy and error/retry feedback retained.
+No horizontal overflow at either viewport; no console errors. Mobile account placeholder truncation is existing shell behavior, not changed by this scope. Initial captures were taken before viewport settled; replaced with settled captures before comparison. No actionable P0/P1/P2 mismatch found.
+
+## Verification and limits
+- Final follow-up: authenticated local candidate successfully loaded Dashboard as Marcus Davies through loopback-only scoped GET proxy. Normal Firebase sign-in and upstream bearer authorization retained; production CORS/settings unchanged. Local proxy401 without auth,403 for POST,403 for unlisted route. Browser error log empty. Authenticated data-ready smoke PASSED; supersedes local-origin block below. Evidence startup-authenticated-success.png (shell-only crop, no order records). Proxy/launcher are local acceptance tools only, never deployment artifacts. No order actions invoked.
+- November 2 follow-up: OS Reduce Motion enabled temporarily from its original off state. Browser computed animationName/transform were none for all four compass motion groups. Original off setting restored and confirmed. Runtime reduced-motion gate passed; evidence startup-compass-reduced-motion.png in the screenshot directory above. Supersedes earlier unexercised note below.
+- Real Firebase sign-in in Chrome at local candidate http://127.0.0.1:5484 succeeded as the existing internal account, showing Marcus Davies and the full shell. Live directory read failed. Unauthenticated OPTIONS to the production API with this Origin returned204 without Access-Control-Allow-Origin, confirming the local origin is not permitted. No CORS/auth permissions changed. Full authenticated data-ready smoke remains BLOCKED, not passed. Evidence startup-auth-local-origin-block.png. Deployment remains held.
+- Follow-up: fetched main (0516d96), no differences in API, Proof, Status or auth.tsx. Full web suite: 310 passed before adding the reduced-motion/source contract test.
+- Full actual-App synthetic browser checks passed: held targets/registry display compass then resolve to Dashboard; directory failure preserves alert and Try again restores Dashboard; customer OAuth-return fixture remains scoped to LTL Demo, retains the original small spinner, then error/retry restores the customer. No real OAuth exchange or provider calls used. Browser console errors absent after fixture generation.
+- Prior QA history is preserved below rather than replaced.
+- Web production build/typecheck pass; 24 targeted startup/operations tests pass with app tsconfig.
+- Existing startup readiness, recovery, customer scoping and AuthGate source tests pass.
+- Shared component's prefers-reduced-motion rule remains byte-identical and disables animation; OS-level reduced-motion browser toggle not exercised.
+- Decorative compass remains aria-hidden; surrounding role=status announces loading.
+- No API/auth/intake/Proof/Status logic changes; no deployment or activation.
+- This is visual candidate acceptance, not production release clearance. Full authenticated startup smoke and live baseline comparison remain release gates.
+
+---
+
+## Preserved prior release QA history
+
 # Status creative metadata and Proof entry — 2026-10-31 local review
 
 ## Current release-check index
