@@ -75,6 +75,32 @@ test("error recovery stays accessible, compact and limited to its actual scope",
   assert.doesNotMatch(global, /Back to customer directory/);
 });
 
+test("startup compass is decorative and exclusive to application loading", () => {
+  const application = renderToStaticMarkup(<WorkspaceLoading embedded scope="application"/>);
+  assert.match(application, /vornan-compass-loader/);
+  assert.match(application, /detail="simple"/);
+  assert.match(application, /aria-hidden="true"/);
+  assert.match(application, /Opening Pathfinder/);
+  assert.doesNotMatch(application, /Preparing your workspace|workspace-loading-spinner/);
+  const customer = renderToStaticMarkup(<WorkspaceLoading embedded scope="customer"/>);
+  assert.doesNotMatch(customer, /vornan-compass-loader/);
+  assert.match(customer, /workspace-loading-spinner/);
+  const failed = renderToStaticMarkup(<WorkspaceLoading embedded scope="application" error="Delayed connection failed" onRetry={() => {}}/>);
+  assert.doesNotMatch(failed, /vornan-compass-loader/);
+  assert.match(failed, /Delayed connection failed|Try again/);
+});
+
+test("startup compass retains reduced motion and local half-speed configuration", async () => {
+  const component = await readFile(new URL("../../../packages/ui/compass-loader/compass-loader.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(component, /@media \(prefers-reduced-motion:reduce\) \{ \.motion \{ animation:none; \}/);
+  assert.doesNotMatch(component, /fetch\(|https?:\/\/(?!www\.w3\.org)/);
+  assert.match(styles, /--compass-size: 56px/);
+  assert.match(styles, /--compass-ring-duration: 24s/);
+  assert.match(styles, /--compass-primary-duration: 16s/);
+  assert.match(styles, /--compass-secondary-duration: 12s/);
+});
+
 test("legacy opt-out keeps its existing loading treatment", () => {
   assert.match(renderToStaticMarkup(<WorkspaceLoading/>), /Loading your current Pathfinder workspace/);
   assert.equal(workspaceLoadingState({ ...ready, operations: false, workspaceMatches: false, workspaceState: "loading" }).pending, true);

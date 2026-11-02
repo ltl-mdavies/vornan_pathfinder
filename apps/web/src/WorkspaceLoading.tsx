@@ -1,3 +1,11 @@
+import { createElement } from "react";
+
+function StartupCompass() {
+  return createElement("vornan-compass-loader", {
+    className: "pathfinder-startup-compass", detail: "simple", decorative: "", "aria-hidden": "true"
+  });
+}
+
 interface WorkspaceLoadingProps {
   message?: string;
   error?: string | null;
@@ -21,11 +29,11 @@ export function WorkspaceLoading({
 }: WorkspaceLoadingProps) {
   if (embedded) {
     return <section className="pf-startup" aria-label={scope === "customer" ? "Customer workspace loading" : "Pathfinder loading"}>
-      <div className="pf-startup-status" role={error ? "alert" : "status"} aria-live="polite">
-        {!error ? <span className="workspace-loading-spinner" aria-hidden="true"/> : null}
+      <div className={`pf-startup-status${scope === "application" && !error ? " pf-startup-status--application" : ""}`} role={error ? "alert" : "status"} aria-live="polite">
+        {!error ? scope === "application" ? <StartupCompass/> : <span className="workspace-loading-spinner" aria-hidden="true"/> : null}
         <div>
           <strong>{setupRequired ? "Set up Pathfinder workspace" : error ? scope === "customer" ? "This customer workspace could not load." : "Pathfinder could not finish loading." : scope === "customer" ? "Loading customer workspace…" : "Opening Pathfinder…"}</strong>
-          <p>{error ?? (scope === "customer" ? "Preparing this customer’s workspace." : "Preparing your workspace. This may take a moment.")}</p>
+          {error || scope === "customer" ? <p>{error ?? "Preparing this customer’s workspace."}</p> : null}
         </div>
       </div>
       {error ? <div className="pf-startup-actions">
@@ -55,10 +63,10 @@ export function WorkspaceLoading({
           role={error ? "alert" : "status"}
           aria-live="polite"
         >
-          <span className="workspace-loading-spinner" aria-hidden="true" />
+          {scope === "application" && !error ? <StartupCompass/> : <span className="workspace-loading-spinner" aria-hidden="true" />}
           <div>
             <strong>{setupRequired ? "Set up Pathfinder workspace" : error ? "Pathfinder could not load this workspace." : message}</strong>
-            <p>{error ?? "Customer, route, and job data will appear together when it is ready."}</p>
+            {error || scope === "customer" ? <p>{error ?? "Customer, route, and job data will appear together when it is ready."}</p> : null}
           </div>
           {error && onRetry ? (
             <button className="secondary-button" type="button" onClick={onRetry}>

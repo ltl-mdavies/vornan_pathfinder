@@ -1363,6 +1363,15 @@ button:disabled {
   font-size: 12px;
 }
 
+.pathfinder-startup-compass {
+  --compass-size: 56px;
+  --compass-color: #39523b;
+  --compass-secondary-color: #abc65f;
+  --compass-ring-duration: 24s;
+  --compass-primary-duration: 16s;
+  --compass-secondary-duration: 12s;
+}
+
 .workspace-loading-spinner {
   width: 22px;
   height: 22px;

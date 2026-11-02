@@ -2,6 +2,7 @@ import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { AuthGate } from "./auth";
 import "./styles.css";
+import "../../../packages/ui/compass-loader/compass-loader.js";
 import { PathfinderStartup } from "./PathfinderStartup";
 
 const App = lazy(() => import("./App").then((module) => ({ default: module.App })));
