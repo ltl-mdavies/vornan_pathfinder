@@ -310,10 +310,10 @@ test("Proof renders terminal focus and atomic alert without retained proof data"
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/proof#/session-ended");
 
-  const terminal = page.getByRole("main", { name: "Your secure session has ended" });
+  const terminal = page.getByRole("main", { name: "Your session has ended" });
   await expect(terminal).toBeVisible();
   await expect(terminal).toBeFocused();
-  await expect(terminal.getByRole("alert")).toContainText("Your secure session has ended");
+  await expect(terminal.getByRole("alert")).toContainText("Your session has ended");
   await expect(page.locator(".task-card, .feed-card, .proof-image")).toHaveCount(0);
   expect(blocked).toEqual([]);
 });

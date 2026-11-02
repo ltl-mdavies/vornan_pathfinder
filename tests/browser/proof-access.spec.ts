@@ -115,7 +115,7 @@ for (const exchange of [true, false]) {
   test(`${exchange ? "exchanged" : "existing"} session order401 stays fail-closed`, async ({ page, context }) => {
     const f = await fixture(context, { orderStatus: 401 });
     await page.goto(exchange ? access : `${origin}/#/proof`);
-    await expect(page.getByRole("heading", { name: "Your secure session has ended" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
     await expect.poll(() => f.requests.filter((r) => r.startsWith("DELETE")).length).toBe(1);
     await expect(page.locator(".task-card, .proof-document-viewer")).toHaveCount(0);
     expect(f.requests).toEqual([
@@ -130,7 +130,7 @@ for (const expiresAt of ["2000-01-01T00:00:00.000Z", "invalid"]) {
   test(`session expiry ${expiresAt} remains fail-closed`, async ({ page, context }) => {
     const f = await fixture(context, { expiresAt });
     await page.goto(access);
-    await expect(page.getByRole("heading", { name: "Your secure session has ended" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
     await expect.poll(() => f.requests.filter((r) => r.startsWith("DELETE")).length).toBe(1);
     await expect(page.locator(".task-card, .proof-document-viewer")).toHaveCount(0);
     f.assertIsolated();
@@ -172,11 +172,11 @@ test("late queued order success cannot revive a locally ended session", async ({
   await page.getByRole("button", { name: "Request latest proof details" }).click();
   await expect.poll(f.orderHeld).toBe(true);
   await page.getByRole("button", { name: "End secure session" }).click();
-  await expect(page.getByRole("heading", { name: "Your secure session has ended" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
   const response = page.waitForResponse((r) => r.url().endsWith("/api/public/proof/order"));
   f.releaseOrder();
   await response;
-  await expect(page.getByRole("heading", { name: "Your secure session has ended" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
   await expect(page.locator(".task-card, .proof-document-viewer")).toHaveCount(0);
   expect(f.requests.filter((r) => r.startsWith("DELETE"))).toHaveLength(1);
   f.assertIsolated();
@@ -191,11 +191,11 @@ test("late background success cannot revive an ended session", async ({ page, co
   await page.clock.fastForward(60_001);
   await expect.poll(f.orderHeld).toBe(true);
   await page.getByRole("button", { name: "End secure session" }).click();
-  await expect(page.getByRole("heading", { name: "Your secure session has ended" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
   const response = page.waitForResponse((r) => r.url().endsWith("/api/public/proof/order"));
   f.releaseOrder();
   await response;
-  await expect(page.getByRole("heading", { name: "Your secure session has ended" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
   await expect(page.locator(".task-card, .proof-document-viewer")).toHaveCount(0);
   expect(f.requests.filter((r) => r.startsWith("DELETE"))).toHaveLength(1);
   f.assertIsolated();
@@ -208,11 +208,11 @@ test("late session extension cannot restore expired proof content", async ({ pag
   await page.getByRole("button", { name: "Continue reviewing" }).click();
   await expect.poll(f.extensionHeld).toBe(true);
   await page.clock.fastForward(46_000);
-  await expect(page.getByRole("heading", { name: "Your secure session has ended" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
   const response = page.waitForResponse((r) => r.url().endsWith("/sessions/current/extend"));
   f.releaseExtension();
   await response;
-  await expect(page.getByRole("heading", { name: "Your secure session has ended" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
   await expect(page.locator(".task-card, .proof-document-viewer")).toHaveCount(0);
   expect(f.requests.filter((r) => r.startsWith("DELETE"))).toHaveLength(1);
   f.assertIsolated();
