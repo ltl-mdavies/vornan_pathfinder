@@ -2057,11 +2057,11 @@ export function App() {
         <img src="/brand/vornan-wordmark.svg" alt="Vornan" />
         <div className="state-icon"><AlertTriangle aria-hidden="true" /></div>
         <div role="alert" aria-atomic="true">
-          <h1 id="proof-terminal-heading">{sessionConflict ? "Your existing Proof session is preserved" : sessionEnded ? "Your secure session has ended" : "This proof link isn’t available"}</h1>
-          <p>{loadState.message}</p>
+          <h1 id="proof-terminal-heading">{sessionConflict ? "Your existing Proof session is preserved" : sessionEnded ? "Your session has ended" : "This proof link isn’t available"}</h1>
+          {!sessionEnded && <p>{loadState.message}</p>}
         </div>
         {sessionConflict ? <button className="button secondary" type="button" onClick={() => window.history.back()}>Go back</button>
-          : <p className="support-copy">Ask your Vornan contact for a new link if you still need access. No proof information remains visible in this browser.</p>}
+          : <p className="support-copy">Ask your Vornan contact for a new link if you still need access.</p>}
       </main>
     );
   }

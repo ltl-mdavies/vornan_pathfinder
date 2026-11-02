@@ -25,6 +25,10 @@ button, a, input, textarea { font: inherit; }
 button { color: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, textarea:focus-visible, .detail-panel:focus-visible { outline: 3px solid #789731; outline-offset: 3px; }
+/* Terminal announcement targets are not controls; retain focus without a decorative ring. */
+.access-recovery-state[tabindex="-1"]:focus,
+.center-state.access-recovery-state:focus #proof-terminal-heading,
+.access-recovery-state #proof-terminal-heading:focus { outline: none; }
 h1, h2, h3, p { margin-top: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
