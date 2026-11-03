@@ -66,3 +66,33 @@ authenticated Dashboard open/all-history reads and existing navigation checks.
 Verify protected API/Proof/Status revisions unchanged. No synthetic production
 failure, Lift order, proof decision, grant/email, Wrike comment, or settings write
 is part of release acceptance. Record resulting SHA/workflow and evidence on closure.
+
+## Deployment result
+
+- PR372 head `7f72b09152981617b3d09a22da6bdf41329f0aa8`; exact merged/main
+  `344c2416cd87342d940b533f1c8eb0e9d6fb65ae`. PR validation40787475563,
+  merged-main validation40787919853 and Admin deployment40788338960 all succeeded.
+- Production build: 37 files; 33 unchanged, three new hashed App/CSS/entry chunks,
+  changed index. All37 live CDN hashes match the exact merged-main build.
+- Index version `E0JCVlkCfGUzdyK8jwp2V1Z8n7sGtJaa`, SHA256
+  `17417bd3f131ceed91837a958f9871525bd3966c571b82993b62c261c2cee397`.
+  Invalidation `IB1TOYNLIRBLSGRVTQNFO1AO3B` completed on E34F508KID3LHW.
+- Private durable evidence/rollback/candidate prefix:
+  `s3://vornan-pathfinder-artifacts/releases/dashboard-polish-7f72b09152981617b3d09a22da6bdf41329f0aa8/`.
+  Merged-main manifest version `LxyrQ247nnX8h5W0kpLxky9vXA5glMRh`.
+- Authenticated live reload passed; compact header and both Open issues / All
+  recorded issues reads returned the correct neutral empty states. Keyboard help
+  opened, including coverage limitations; default view restored. Recent orders
+  C317112/A0234335 and C317113/A0234336 remain confirmed. Jobs navigation/read
+  passed, and Dashboard reports scheduler healthy.
+- Primary API revision, Proof public revision and both public Proof/Status index
+  versions match the pre-deploy baseline exactly. No Proof/Status/API deployment,
+  provider action, permission change or production data edit was performed.
+- Existing GitHub action-runtime deprecation and large-bundle warnings remain;
+  no dependency/workflow upgrades were bundled. No production error was induced
+  to test the module; unavailable/history detail coverage is from isolated QA.
+
+Proof v1 remains a separate incomplete candidate. Fresh owner review found final
+approval-completion and reversal/reapproval claim issues; isolated fixes and
+customer revised-art handoff work are in progress. Launch cohort and disposable
+Lift mutation-test order require confirmation; A0233367 remains view-only scope.
