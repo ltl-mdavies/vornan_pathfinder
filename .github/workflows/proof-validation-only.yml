@@ -1,0 +1,84 @@
+# INACTIVE REVIEW FILE. Not installed under .github/workflows.
+# Role and protected environment descriptor require separate setup approval.
+name: Proof validation only
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  validate:
+    name: Proof validation only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: proof-release-owner
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout exact launcher
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Pin Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Read committed tooling identity
+        id: tooling
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          if(process.env.GITHUB_REF!=='refs/heads/main'||process.env.GITHUB_RUN_ATTEMPT!=='1'||process.env.GITHUB_EVENT_NAME!=='workflow_dispatch')throw Error('Validation context rejected');
+          const p=JSON.parse(execFileSync('git',['show','HEAD:validation/pins.json'],{maxBuffer:8192,timeout:5000}));
+          if(!/^[a-f0-9]{40}$/.test(p.toolingCommit))throw Error('Tooling pin rejected');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'commit='+p.toolingCommit+'\n');
+          JS
+      - name: Checkout exact verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ steps.tooling.outputs.commit }}
+          path: verifier
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify source and protected descriptor before credentials
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROOF_VALIDATION_DESCRIPTOR: ${{ vars.PROOF_VALIDATION_DESCRIPTOR }}
+        run: |
+          node --input-type=module -e "const m=await import('./verifier/tools/proof-release-review/proof-disabled-workflow/intended-validation-bootstrap.mjs');m.inspectIntendedInputs(process.env);"
+      - name: Install lockfile-pinned SDK without lifecycle scripts
+        working-directory: verifier/tools/proof-release-review/proof-tooling-deps
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Obtain only dedicated short-lived validation identity
+        id: reader
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::744016783602:role/vornan-proof-validation-reader
+          role-session-name: proof-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 900
+          output-credentials: true
+          output-env-credentials: false
+          unset-current-credentials: true
+          disable-retry: true
+      - name: Verify identity, acquire five pinned versions and validate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROOF_VALIDATION_DESCRIPTOR: ${{ vars.PROOF_VALIDATION_DESCRIPTOR }}
+          PROOF_AWS_ACCESS_KEY_ID: ${{ steps.reader.outputs.aws-access-key-id }}
+          PROOF_AWS_SECRET_ACCESS_KEY: ${{ steps.reader.outputs.aws-secret-access-key }}
+          PROOF_AWS_SESSION_TOKEN: ${{ steps.reader.outputs.aws-session-token }}
+        run: |
+          node --input-type=module <<'JS'
+          const m=await import('./verifier/tools/proof-release-review/proof-disabled-workflow/intended-validation-bootstrap.mjs');
+          const result=await m.runIntendedValidation();
+          process.stdout.write(JSON.stringify(result)+'\n');
+          process.exitCode=result.status==='snapshot-matches-NOT-AUTHORIZED'?0:78;
+          JS
+# No publication, uploads, deployment, changes to Proof, or artifact retention
+# actions. Owned private staging is cleaned by the bootstrap; hosted runner is
+# ephemeral. Publication/dispatch and environment setup are separate approvals.
