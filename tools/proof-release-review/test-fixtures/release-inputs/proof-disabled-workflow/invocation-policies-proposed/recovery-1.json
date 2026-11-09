@@ -1,0 +1,118 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Allows3GetObject",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-proof-fixture/index.html",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsides3GetObject",
+      "Effect": "Deny",
+      "Action": "s3:GetObject",
+      "NotResource": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-proof-fixture/index.html",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ]
+    },
+    {
+      "Sid": "Allows3GetBucketVersioning",
+      "Effect": "Allow",
+      "Action": "s3:GetBucketVersioning",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsides3GetBucketVersioning",
+      "Effect": "Deny",
+      "Action": "s3:GetBucketVersioning",
+      "NotResource": [
+        "arn:aws:s3:::example-proof-fixture"
+      ]
+    },
+    {
+      "Sid": "AllowcloudfrontGetDistributionConfig",
+      "Effect": "Allow",
+      "Action": "cloudfront:GetDistributionConfig",
+      "Resource": [
+        "arn:aws:cloudfront::111111111111:distribution/EFIXTURE123"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsidecloudfrontGetDistributionConfig",
+      "Effect": "Deny",
+      "Action": "cloudfront:GetDistributionConfig",
+      "NotResource": [
+        "arn:aws:cloudfront::111111111111:distribution/EFIXTURE123"
+      ]
+    },
+    {
+      "Sid": "AllowcloudfrontGetFunction",
+      "Effect": "Allow",
+      "Action": "cloudfront:GetFunction",
+      "Resource": [
+        "arn:aws:cloudfront::111111111111:function/fixture-proof-dev-spa-rewrite"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsidecloudfrontGetFunction",
+      "Effect": "Deny",
+      "Action": "cloudfront:GetFunction",
+      "NotResource": [
+        "arn:aws:cloudfront::111111111111:function/fixture-proof-dev-spa-rewrite"
+      ]
+    },
+    {
+      "Sid": "DenyOtherOperations",
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:GetObject",
+        "s3:GetBucketVersioning",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:GetFunction",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyInsecureOrMissingTransport",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    }
+  ]
+}

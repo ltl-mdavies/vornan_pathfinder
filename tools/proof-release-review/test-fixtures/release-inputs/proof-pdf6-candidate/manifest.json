@@ -1,0 +1,85 @@
+{
+  "synthetic": true,
+  "assets": [
+    {
+      "path": "assets/icons-BEPd7kJQ.js",
+      "sha256": "214ccb10340aa0c6d310bc7c10b29b0070e1640292318acce6bfc6d843316044",
+      "bytes": 54
+    },
+    {
+      "path": "assets/index-BLpayhdw.js",
+      "sha256": "d170e798431c6b5b64be9b42be1942efc9e65f9131c58f64d417763ff7171737",
+      "bytes": 54
+    },
+    {
+      "path": "assets/index-DTmDXRIP.css",
+      "sha256": "09bf438ff01a16efe9807e87f4f86379f6b1ba2a48d89f1f89a3907c0443998d",
+      "bytes": 55
+    },
+    {
+      "path": "assets/index.esm-BwIw-1St.js",
+      "sha256": "6ae373f70da006dc9a324e886c9a918a77b7f63fd664f462dff6e0527c916fcc",
+      "bytes": 58
+    },
+    {
+      "path": "assets/index.esm-Cyk35PyT.js",
+      "sha256": "8a8f2c772e9e26cb7bf0046ade4d646edcbb34a3553f82def9ae6758cb883fe7",
+      "bytes": 58
+    },
+    {
+      "path": "assets/index.esm-DR6eTzAd.js",
+      "sha256": "97c4d941c4486b05bb45a4f447e44d70e64ba175757c4293003130c5b1df36d0",
+      "bytes": 58
+    },
+    {
+      "path": "assets/pdf-w2Vx1rau.js",
+      "sha256": "beb658cb222f872bafaae2995618ee48bda8220731e8b11cee6955289ea617d2",
+      "bytes": 52
+    },
+    {
+      "path": "assets/pdf-worker-url-B-4I8zKO.js",
+      "sha256": "01d062de0933286b1e8e828a883517e5f45d0354cc0910dfeaddd18821856ce9",
+      "bytes": 63
+    },
+    {
+      "path": "assets/pdf.worker.min-CLrFZWeq.mjs",
+      "sha256": "7738ca52012b8d3a865b36b06d4775a7fc3e669329d46835f6904a196f4c3126",
+      "bytes": 64
+    },
+    {
+      "path": "assets/react-BZwu_XJr.js",
+      "sha256": "a50c9d4e6e15d3169035e7753953042d079308868ef84d5361fa1b457c817190",
+      "bytes": 54
+    },
+    {
+      "path": "brand/proof-placeholder.pdf",
+      "sha256": "2d35d5e1ed6cf88030a34c42d0f20005d671e27a3813dc75c255006dbb1957ef",
+      "bytes": 57
+    },
+    {
+      "path": "brand/proof-placeholder.svg",
+      "sha256": "d11d799b358015d669c196b3abfaf9860a5ca4502faf6e87ee1fe4b73476143a",
+      "bytes": 57
+    },
+    {
+      "path": "brand/vornan-wordmark.svg",
+      "sha256": "d424e2e9d9767b703fe86c33899fdbc28c7166d001b618db89f59b465578c839",
+      "bytes": 55
+    },
+    {
+      "path": "fonts/plus-jakarta-sans-500.ttf",
+      "sha256": "b1c438a11cc4c25a0b3f79c9e6bf0c3a743c6fc1e76e309339446caac91fa820",
+      "bytes": 61
+    },
+    {
+      "path": "fonts/plus-jakarta-sans-800.ttf",
+      "sha256": "da81ac2c1176816303626713c4cc0db3083c38f7e02022ee89124b791ddeb462",
+      "bytes": 61
+    },
+    {
+      "path": "index.html",
+      "sha256": "05fae34b9ef66a39d836dce9bbdf820d46daa2b3ec1aa7e4fabc83ba2f6b00ac",
+      "bytes": 40
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyNonexclusiveCreate",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture/assets/index-BLpayhdw.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-w2Vx1rau.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-worker-url-B-4I8zKO.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf.worker.min-CLrFZWeq.mjs",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/transition-000001.intent.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000001.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000002.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000003.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000004.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000005.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000006.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000007.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000008.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000009.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000010.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/final.json"
+      ],
+      "Condition": {
+        "StringNotEquals": {
+          "s3:if-none-match": "*"
+        }
+      }
+    },
+    {
+      "Sid": "DenyIfMatchOnCreate",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture/assets/index-BLpayhdw.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-w2Vx1rau.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-worker-url-B-4I8zKO.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf.worker.min-CLrFZWeq.mjs",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/transition-000001.intent.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000001.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000002.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000003.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000004.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000005.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000006.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000007.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000008.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000009.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000010.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/final.json"
+      ],
+      "Condition": {
+        "Null": {
+          "s3:if-match": "false"
+        }
+      }
+    },
+    {
+      "Sid": "DenyWrongOrMissingEncryption",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "s3:x-amz-server-side-encryption": "AES256"
+        }
+      }
+    },
+    {
+      "Sid": "DenyCopy",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": "*",
+      "Condition": {
+        "Null": {
+          "s3:x-amz-copy-source": "false"
+        }
+      }
+    },
+    {
+      "Sid": "AllowConditionalIndexReplace",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture/index.html"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        },
+        "StringEquals": {
+          "s3:x-amz-server-side-encryption": "AES256"
+        },
+        "StringNotEquals": {
+          "s3:if-match": [
+            "",
+            "*"
+          ]
+        },
+        "Null": {
+          "s3:if-match": "false",
+          "s3:if-none-match": "true",
+          "s3:x-amz-copy-source": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyMissingIndexMatch",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture/index.html"
+      ],
+      "Condition": {
+        "Null": {
+          "s3:if-match": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEmptyOrWildcardIndexMatch",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture/index.html"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "s3:if-match": [
+            "",
+            "*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DenyIfNoneMatchOnIndex",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture/index.html"
+      ],
+      "Condition": {
+        "Null": {
+          "s3:if-none-match": "false"
+        }
+      }
+    }
+  ]
+}

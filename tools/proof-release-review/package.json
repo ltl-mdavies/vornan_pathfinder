@@ -1,0 +1,7 @@
+{
+  "name": "proof-release-review-local",
+  "private": true,
+  "scripts": {
+    "test:public": "node test-public.mjs"
+  }
+}

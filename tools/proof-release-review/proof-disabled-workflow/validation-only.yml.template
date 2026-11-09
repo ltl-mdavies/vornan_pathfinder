@@ -1,0 +1,27 @@
+# LOCAL REVIEW ONLY. Do not install/dispatch. Source staging and record pin
+# must be finalized and reviewed before the unconditional holds can be changed.
+name: Proof validation only
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  validate:
+    if: ${{ false }}
+    name: Proof validation only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    environment: proof-release-owner
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Installation and immutable source staging not authorized
+        run: exit 78
+      # Intentionally no checkout action with an invented/unreviewed pin.
+      # Future reviewed staging must provide the exact source and pinned private
+      # inputs; it must not rebuild the application or acquire AWS credentials.
+      - name: Read-only GitHub validation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROOF_REVIEW_PROFILE: private
+        run: node verifier/tools/proof-release-review/proof-disabled-workflow/runtime-validation-proposal.mjs

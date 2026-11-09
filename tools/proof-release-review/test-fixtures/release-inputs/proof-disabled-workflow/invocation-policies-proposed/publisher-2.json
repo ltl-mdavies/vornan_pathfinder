@@ -1,0 +1,107 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyOutsides3GetObject",
+      "Effect": "Deny",
+      "Action": "s3:GetObject",
+      "NotResource": [
+        "arn:aws:s3:::example-proof-fixture/assets/icons-BEPd7kJQ.js",
+        "arn:aws:s3:::example-proof-fixture/assets/index-BLpayhdw.js",
+        "arn:aws:s3:::example-proof-fixture/assets/index-DTmDXRIP.css",
+        "arn:aws:s3:::example-proof-fixture/assets/index.esm-BwIw-1St.js",
+        "arn:aws:s3:::example-proof-fixture/assets/index.esm-Cyk35PyT.js",
+        "arn:aws:s3:::example-proof-fixture/assets/index.esm-DR6eTzAd.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-w2Vx1rau.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-worker-url-B-4I8zKO.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf.worker.min-CLrFZWeq.mjs",
+        "arn:aws:s3:::example-proof-fixture/assets/react-BZwu_XJr.js",
+        "arn:aws:s3:::example-proof-fixture/brand/proof-placeholder.pdf",
+        "arn:aws:s3:::example-proof-fixture/brand/proof-placeholder.svg",
+        "arn:aws:s3:::example-proof-fixture/brand/vornan-wordmark.svg",
+        "arn:aws:s3:::example-proof-fixture/fonts/plus-jakarta-sans-500.ttf",
+        "arn:aws:s3:::example-proof-fixture/fonts/plus-jakarta-sans-800.ttf",
+        "arn:aws:s3:::example-proof-fixture/index.html",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000000.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/transition-000001.intent.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000001.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000002.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000003.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000004.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000005.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000006.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000007.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000008.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000009.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000010.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/final.json"
+      ]
+    },
+    {
+      "Sid": "Allows3GetBucketVersioning",
+      "Effect": "Allow",
+      "Action": "s3:GetBucketVersioning",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsides3GetBucketVersioning",
+      "Effect": "Deny",
+      "Action": "s3:GetBucketVersioning",
+      "NotResource": [
+        "arn:aws:s3:::example-proof-fixture"
+      ]
+    },
+    {
+      "Sid": "AllowcloudfrontGetDistributionConfig",
+      "Effect": "Allow",
+      "Action": "cloudfront:GetDistributionConfig",
+      "Resource": [
+        "arn:aws:cloudfront::111111111111:distribution/EFIXTURE123"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsidecloudfrontGetDistributionConfig",
+      "Effect": "Deny",
+      "Action": "cloudfront:GetDistributionConfig",
+      "NotResource": [
+        "arn:aws:cloudfront::111111111111:distribution/EFIXTURE123"
+      ]
+    },
+    {
+      "Sid": "AllowcloudfrontGetFunction",
+      "Effect": "Allow",
+      "Action": "cloudfront:GetFunction",
+      "Resource": [
+        "arn:aws:cloudfront::111111111111:function/fixture-proof-dev-spa-rewrite"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsidecloudfrontGetFunction",
+      "Effect": "Deny",
+      "Action": "cloudfront:GetFunction",
+      "NotResource": [
+        "arn:aws:cloudfront::111111111111:function/fixture-proof-dev-spa-rewrite"
+      ]
+    }
+  ]
+}

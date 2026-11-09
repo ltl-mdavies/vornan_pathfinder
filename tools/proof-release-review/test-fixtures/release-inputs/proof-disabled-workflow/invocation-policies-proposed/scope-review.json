@@ -1,0 +1,149 @@
+{
+  "status": "UNAPPLIED exact test pair; not actual run approval or IAM acceptance",
+  "pair": {
+    "publish": {
+      "mode": "publish",
+      "runId": "123",
+      "attempt": "1",
+      "jobId": "456",
+      "sourceRunId": "123",
+      "sourceAttempt": "1"
+    },
+    "recovery": {
+      "mode": "recovery",
+      "runId": "789",
+      "attempt": "1",
+      "jobId": "456",
+      "sourceRunId": "123",
+      "sourceAttempt": "1"
+    }
+  },
+  "scopes": {
+    "archive": {
+      "read": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/source-39631bb5e5dc9326b23f8c00bf43440a84ce711315c6b799de554c56aa04d133.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/candidate-6a5b7c25cc334e313ace35135b722e1b3ce918d0137988933a491a9f9858e2a5.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/rollback-4900e1f0fc01120b4a149b6c55002a1fc40007ab0da9acc56f041b361a854962.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000000.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ],
+      "exclusive": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/source-39631bb5e5dc9326b23f8c00bf43440a84ce711315c6b799de554c56aa04d133.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/candidate-6a5b7c25cc334e313ace35135b722e1b3ce918d0137988933a491a9f9858e2a5.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/rollback-4900e1f0fc01120b4a149b6c55002a1fc40007ab0da9acc56f041b361a854962.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000000.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ],
+      "conditional": [],
+      "documents": [
+        {
+          "file": "archive-1.json",
+          "characters": 6004
+        },
+        {
+          "file": "archive-2.json",
+          "characters": 3158
+        }
+      ]
+    },
+    "publisher": {
+      "read": [
+        "arn:aws:s3:::example-proof-fixture/assets/icons-BEPd7kJQ.js",
+        "arn:aws:s3:::example-proof-fixture/assets/index-BLpayhdw.js",
+        "arn:aws:s3:::example-proof-fixture/assets/index-DTmDXRIP.css",
+        "arn:aws:s3:::example-proof-fixture/assets/index.esm-BwIw-1St.js",
+        "arn:aws:s3:::example-proof-fixture/assets/index.esm-Cyk35PyT.js",
+        "arn:aws:s3:::example-proof-fixture/assets/index.esm-DR6eTzAd.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-w2Vx1rau.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-worker-url-B-4I8zKO.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf.worker.min-CLrFZWeq.mjs",
+        "arn:aws:s3:::example-proof-fixture/assets/react-BZwu_XJr.js",
+        "arn:aws:s3:::example-proof-fixture/brand/proof-placeholder.pdf",
+        "arn:aws:s3:::example-proof-fixture/brand/proof-placeholder.svg",
+        "arn:aws:s3:::example-proof-fixture/brand/vornan-wordmark.svg",
+        "arn:aws:s3:::example-proof-fixture/fonts/plus-jakarta-sans-500.ttf",
+        "arn:aws:s3:::example-proof-fixture/fonts/plus-jakarta-sans-800.ttf",
+        "arn:aws:s3:::example-proof-fixture/index.html",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000000.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/transition-000001.intent.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000001.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000002.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000003.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000004.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000005.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000006.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000007.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000008.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000009.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000010.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/final.json"
+      ],
+      "exclusive": [
+        "arn:aws:s3:::example-proof-fixture/assets/index-BLpayhdw.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-w2Vx1rau.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-worker-url-B-4I8zKO.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf.worker.min-CLrFZWeq.mjs",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/transition-000001.intent.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000001.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000002.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000003.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000004.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000005.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000006.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000007.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000008.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000009.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000010.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/final.json"
+      ],
+      "conditional": [
+        "arn:aws:s3:::example-proof-fixture/index.html"
+      ],
+      "documents": [
+        {
+          "file": "publisher-1.json",
+          "characters": 3267
+        },
+        {
+          "file": "publisher-2.json",
+          "characters": 4407
+        },
+        {
+          "file": "publisher-3.json",
+          "characters": 4369
+        },
+        {
+          "file": "publisher-4.json",
+          "characters": 5119
+        }
+      ]
+    },
+    "recovery": {
+      "read": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-proof-fixture/index.html",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ],
+      "exclusive": [],
+      "conditional": [],
+      "documents": [
+        {
+          "file": "recovery-1.json",
+          "characters": 2629
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+Supplemental license record for packages whose npm archives omit LICENSE files
+
+@aws-sdk/credential-provider-http 3.972.84
+@aws-sdk/credential-provider-login 3.972.89
+@aws-sdk/nested-clients 3.998.1
+
+All three exact-version npm records declare Apache-2.0. Their package.json files
+at official AWS source commit bb818ca944e735d449b6f061141b91d92290f161
+match those versions and declare Apache-2.0. Source directories:
+  packages-internal/credential-provider-http
+  packages-internal/credential-provider-login
+  packages-internal/nested-clients
+
+Repository: https://github.com/aws/aws-sdk-js-v3
+License source:
+https://github.com/aws/aws-sdk-js-v3/blob/bb818ca944e735d449b6f061141b91d92290f161/LICENSE
+
+The adjacent AWS-SDK-LICENSE.txt preserves that upstream root license, including
+its Amazon copyright notice. The complete, non-truncated source tree at this
+commit contains no additional LICENSE or NOTICE file in these three package
+directories and no root NOTICE. Existing notices in other installed dependencies
+must also be retained; this supplement does not replace them.
+
+This is a scoped license-file provenance record, not legal advice, a full
+third-party code audit, or proof that compiled npm bytes were built from this
+commit. Lockfile integrity and source-version correspondence are separate checks.

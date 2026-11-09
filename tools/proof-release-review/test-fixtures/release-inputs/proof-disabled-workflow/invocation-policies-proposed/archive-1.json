@@ -1,0 +1,108 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Allows3GetObject",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/source-39631bb5e5dc9326b23f8c00bf43440a84ce711315c6b799de554c56aa04d133.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/candidate-6a5b7c25cc334e313ace35135b722e1b3ce918d0137988933a491a9f9858e2a5.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/rollback-4900e1f0fc01120b4a149b6c55002a1fc40007ab0da9acc56f041b361a854962.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000000.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsides3GetObject",
+      "Effect": "Deny",
+      "Action": "s3:GetObject",
+      "NotResource": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/source-39631bb5e5dc9326b23f8c00bf43440a84ce711315c6b799de554c56aa04d133.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/candidate-6a5b7c25cc334e313ace35135b722e1b3ce918d0137988933a491a9f9858e2a5.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/rollback-4900e1f0fc01120b4a149b6c55002a1fc40007ab0da9acc56f041b361a854962.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000000.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ]
+    },
+    {
+      "Sid": "DenyOutsides3PutObject",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "NotResource": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/source-39631bb5e5dc9326b23f8c00bf43440a84ce711315c6b799de554c56aa04d133.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/candidate-6a5b7c25cc334e313ace35135b722e1b3ce918d0137988933a491a9f9858e2a5.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/rollback-4900e1f0fc01120b4a149b6c55002a1fc40007ab0da9acc56f041b361a854962.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000000.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ]
+    },
+    {
+      "Sid": "DenyOtherOperations",
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyInsecureOrMissingTransport",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    },
+    {
+      "Sid": "AllowExclusiveCreate",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/release.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/source-39631bb5e5dc9326b23f8c00bf43440a84ce711315c6b799de554c56aa04d133.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/candidate-6a5b7c25cc334e313ace35135b722e1b3ce918d0137988933a491a9f9858e2a5.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/artifacts/rollback-4900e1f0fc01120b4a149b6c55002a1fc40007ab0da9acc56f041b361a854962.tar.gz",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000000.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/source-123-1.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/owner-review.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/recovery-789-1-456/owner-review.json"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        },
+        "StringEquals": {
+          "s3:if-none-match": "*",
+          "s3:x-amz-server-side-encryption": "AES256"
+        },
+        "Null": {
+          "s3:if-match": "true",
+          "s3:x-amz-copy-source": "true"
+        }
+      }
+    }
+  ]
+}

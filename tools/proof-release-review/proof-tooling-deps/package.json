@@ -1,0 +1,1 @@
+{"name":"proof-sdk-local-contract-tests","private":true,"type":"module","dependencies":{"@aws-sdk/client-s3":"3.1094.0","@aws-sdk/client-sts":"3.1094.0","@aws-sdk/client-cloudfront":"3.1094.0"}}
