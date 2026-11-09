@@ -1,0 +1,35 @@
+# Review source only. Outside .github; do not install or dispatch.
+name: Proof frontend-only candidate - DISABLED
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: vornan-proof-production-publisher
+  cancel-in-progress: false
+jobs:
+  frontend:
+    if: ${{ false }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 10
+    steps:
+      - name: Unconditional operational hold
+        run: exit 78
+      # Source staging is intentionally unresolved: no mutable checkout/rebuild.
+      # These commands are reviewable offline entrypoints, not cloud adapters.
+      - name: Validate reviewed offline publication contract
+        run: node proof-disabled-workflow/cli.mjs --offline-plan review/publish.json review/candidate.tar.gz
+      - name: Operational publisher stays fail-closed
+        run: node proof-disabled-workflow/cli.mjs --publish
+  recovery:
+    if: ${{ false }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 10
+    steps:
+      - name: Unconditional operational hold
+        run: exit 78
+      - name: Validate separate read-only recovery contract
+        run: node proof-disabled-workflow/cli.mjs --offline-plan review/recovery.json
+      - name: Operational recovery stays fail-closed
+        run: node proof-disabled-workflow/cli.mjs --recover

@@ -1,0 +1,58 @@
+{
+  "status": "LOCAL DESIGN ONLY - NOT EXECUTABLE",
+  "repository": "example/proof-review",
+  "ref": "refs/heads/main",
+  "candidateCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "sourceArchiveSha256": "39631bb5e5dc9326b23f8c00bf43440a84ce711315c6b799de554c56aa04d133",
+  "candidateArchiveSha256": "6a5b7c25cc334e313ace35135b722e1b3ce918d0137988933a491a9f9858e2a5",
+  "candidateIndexSha256": "05fae34b9ef66a39d836dce9bbdf820d46daa2b3ec1aa7e4fabc83ba2f6b00ac",
+  "rollbackArchiveSha256": "4900e1f0fc01120b4a149b6c55002a1fc40007ab0da9acc56f041b361a854962",
+  "rollbackBaselineMustBeRenewed": true,
+  "account": "111111111111",
+  "region": "us-east-1",
+  "archiveBucket": "example-private-fixture",
+  "archivePrefix": "fixture/releases/proof-fixture-release/",
+  "frontendBucket": "example-proof-fixture",
+  "distribution": "EFIXTURE123",
+  "rewrite": "fixture-rewrite",
+  "oidcAudience": "sts.amazonaws.com",
+  "roles": {
+    "archive": {
+      "name": "fixture-proof-release-archive",
+      "environment": "proof-release-archive"
+    },
+    "publisher": {
+      "name": "fixture-proof-release-publisher",
+      "environment": "proof-release-publish"
+    },
+    "recovery": {
+      "name": "fixture-proof-release-recovery",
+      "environment": "proof-release-recovery"
+    }
+  },
+  "environmentRequirements": {
+    "requiredReviewer": "fixture-owner",
+    "proposedReviewer": "fixture-owner",
+    "dispatcher": "fixture-owner",
+    "approvalModel": "Solo owner; may initiate and approve; explicit release decision required",
+    "preventSelfReview": false,
+    "canAdminsBypass": false,
+    "selectedBranches": [
+      "main"
+    ],
+    "selectedTags": []
+  },
+  "publication": {
+    "journalException": "Accepted for local validation only: same publisher process creates/reads this release journal; no independent attestation",
+    "journalPrefix": "fixture/releases/proof-fixture-release/journal/",
+    "rebuild": false,
+    "arbitraryInputs": false,
+    "indexLast": true,
+    "conditionalWrites": true,
+    "maxAttempts": 1,
+    "concurrencyGroup": "fixture-proof-production-publisher",
+    "cancelInProgress": false,
+    "unknownOutcome": "halt and read-only reconcile; never blind retry",
+    "retention": "preserve without automatic expiry"
+  }
+}

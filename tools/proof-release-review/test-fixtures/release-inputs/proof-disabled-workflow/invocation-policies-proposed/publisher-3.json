@@ -1,0 +1,89 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyOutsides3PutObject",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "NotResource": [
+        "arn:aws:s3:::example-proof-fixture/assets/index-BLpayhdw.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-w2Vx1rau.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-worker-url-B-4I8zKO.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf.worker.min-CLrFZWeq.mjs",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/transition-000001.intent.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000001.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000002.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000003.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000004.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000005.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000006.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000007.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000008.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000009.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000010.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/final.json",
+        "arn:aws:s3:::example-proof-fixture/index.html"
+      ]
+    },
+    {
+      "Sid": "DenyOtherOperations",
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:GetObject",
+        "s3:GetBucketVersioning",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:GetFunction",
+        "s3:PutObject",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyInsecureOrMissingTransport",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    },
+    {
+      "Sid": "AllowExclusiveCreate",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::example-proof-fixture/assets/index-BLpayhdw.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-w2Vx1rau.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf-worker-url-B-4I8zKO.js",
+        "arn:aws:s3:::example-proof-fixture/assets/pdf.worker.min-CLrFZWeq.mjs",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/transition-000001.intent.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000001.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000002.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000003.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000004.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000005.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000006.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000007.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000008.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000009.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/anchor-000010.json",
+        "arn:aws:s3:::example-private-fixture/fixture/releases/proof-fixture-release/evidence/supervised/invocations/publish-123-1-456/final.json"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        },
+        "StringEquals": {
+          "s3:if-none-match": "*",
+          "s3:x-amz-server-side-encryption": "AES256"
+        },
+        "Null": {
+          "s3:if-match": "true",
+          "s3:x-amz-copy-source": "true"
+        }
+      }
+    }
+  ]
+}

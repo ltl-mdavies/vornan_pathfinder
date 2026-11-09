@@ -1,0 +1,130 @@
+{
+  "private": {
+    "proof-clean-package-v1/candidate.tar.gz": {
+      "bytes": 819131,
+      "sha256": "779f6690ed63fa96b75729cec5ee70d099806d29d3a4094b058c6ed78add6a54"
+    },
+    "proof-disabled-sdk/audit-policies-proposed/scope-review.json": {
+      "bytes": 8641,
+      "sha256": "719fca9e55c79965c5867f5ee282d1acc8430c61c69cc09036afd335a57eee2c"
+    },
+    "proof-disabled-workflow/github-observed-fixture.json": {
+      "bytes": 629,
+      "sha256": "c562ad6e7fff972ae43a8100447ab3870f5deec192f99922df3a1325c3b7af72"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/archive-1.json": {
+      "bytes": 6879,
+      "sha256": "603ea27025035003227c8975e4eb26955f781f0b6ece2ac7271b03d7ea358c00"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/archive-2.json": {
+      "bytes": 3699,
+      "sha256": "74b0ff8384a4948262fdbef83b07a0c7c7c3b5716206f9199f2b7624429a90ce"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/publisher-1.json": {
+      "bytes": 3663,
+      "sha256": "ac1bdd4c5be2c209f44e3989bf7712f2805b0ccde9d77ee2fcf5b823a1fa8d60"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/publisher-2.json": {
+      "bytes": 5243,
+      "sha256": "019f5d9b5dea861579d3f4ae85a216528aff8e56008533175d5de7ca83098588"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/publisher-3.json": {
+      "bytes": 5100,
+      "sha256": "5359c45a7969c4baf6a94eeff165fe9c3d5aa8d9f3a5a563aedec5f8e065f51f"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/publisher-4.json": {
+      "bytes": 6393,
+      "sha256": "51bfe6a572dec4b7ac44c998ea61cd34e134ef482f6648c700b8c40c5926dd6a"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/recovery-1.json": {
+      "bytes": 3526,
+      "sha256": "c84be205a123be236bf3f0dab880284e7034f8047eaf70316ba701b893b1b6f8"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/scope-review.json": {
+      "bytes": 10000,
+      "sha256": "4138bc1c0857739ed5c660b868142f91357dd637a989d16db981cd8bbed149e7"
+    },
+    "proof-oidc-release-draft/release-plan.json": {
+      "bytes": 2211,
+      "sha256": "1f5859bcb7c52f2448ee67855217d60668741845a06fdb4742eafd7232530148"
+    },
+    "proof-pdf6-candidate/freeze.json": {
+      "bytes": 5114,
+      "sha256": "5deb4d353ae5de66c96b426bc89d9c52ad23489b3309d255bb44e8b65cedf6cf"
+    },
+    "proof-pdf6-candidate/manifest.json": {
+      "bytes": 183684,
+      "sha256": "a5eee46240d5ac8d61e73d74407eb49a2236837b674280d20869d3c6f937f592"
+    },
+    "proof-release-prep/baseline-and-plan.json": {
+      "bytes": 34089,
+      "sha256": "735c4e4ea3b072b57ae21478f673a3919a0abeb583f209e4440fb25027e91bc4"
+    },
+    "proof-retention-transport/policy-delta.proposed.json": {
+      "bytes": 15315,
+      "sha256": "783b996224c9dfa4e8def79efb4ef422deb4e8228c3d5c303462b2d5082ded38"
+    }
+  },
+  "fixture": {
+    "proof-clean-package-v1/candidate.tar.gz": {
+      "bytes": 611,
+      "sha256": "6a5b7c25cc334e313ace35135b722e1b3ce918d0137988933a491a9f9858e2a5"
+    },
+    "proof-disabled-sdk/audit-policies-proposed/scope-review.json": {
+      "bytes": 8357,
+      "sha256": "50db3e4f18825cea715d64919ffd246894f45cad3810ca9ba7ad1620b1854e5f"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/archive-1.json": {
+      "bytes": 6735,
+      "sha256": "80419fbba21146f3d38d0e85a1c99605d6293f1607c6fe3ec9b873b6f92e3582"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/archive-2.json": {
+      "bytes": 3627,
+      "sha256": "7ce346f643f6c6d11eab71f3c7905de410a3a21aefb6c72c1605829749f47ff8"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/publisher-1.json": {
+      "bytes": 3503,
+      "sha256": "5751fad14c18a7b6eb460c6dd904cf441b8f6e937cb00dd13e5bfa278fc90d74"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/publisher-2.json": {
+      "bytes": 5067,
+      "sha256": "7152c9d9a93fa5d95fead982bdfee3bd976372ee81ad49b7d1bdeff7f4df9d1e"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/publisher-3.json": {
+      "bytes": 4950,
+      "sha256": "b3391855653638797e8a186cc7a0c8802e8a49f240b5e36e8eb7d3f3a2c959e5"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/publisher-4.json": {
+      "bytes": 6225,
+      "sha256": "1deecb41ca8b46ef5345c7a114e256e51fed1bafd0eeff28fa2796d371272c2a"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/recovery-1.json": {
+      "bytes": 3474,
+      "sha256": "76eff66128ab9a01ac6e894de24ca658e32ba6b6343d32ffd09d394fa470c50c"
+    },
+    "proof-disabled-workflow/invocation-policies-proposed/scope-review.json": {
+      "bytes": 9672,
+      "sha256": "b337683db937dca46ce9df2b5a10915fd0c5da43c9b113904452391593cbd43c"
+    },
+    "proof-oidc-release-draft/release-plan.json": {
+      "bytes": 2261,
+      "sha256": "132d11b1bbddb7fa4303ac95c7b621822e48ee4b261e69049e9c9c0573fbd58b"
+    },
+    "proof-pdf6-candidate/freeze.json": {
+      "bytes": 2570,
+      "sha256": "edb279cf04408493cbe8b1018037b4f3610414616b3149d744c0ea0ec04b5045"
+    },
+    "proof-pdf6-candidate/manifest.json": {
+      "bytes": 2591,
+      "sha256": "68a0790f4b1d6bb4e7c27b1bcb3870d8c9f4c773604ca35a8daed02b03a3127e"
+    },
+    "proof-release-prep/baseline-and-plan.json": {
+      "bytes": 4154,
+      "sha256": "05587cd58fb1da2168536fdffb6dacac7d3714cffc20b1f273a96f371cf0ecdb"
+    },
+    "proof-retention-transport/policy-delta.proposed.json": {
+      "bytes": 14887,
+      "sha256": "1790a9348f0a6c7d656fa4a102a7d5d10342e175dcfb5e12221026b1ec861dbf"
+    }
+  }
+}

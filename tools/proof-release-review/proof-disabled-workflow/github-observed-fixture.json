@@ -1,0 +1,29 @@
+{
+  "provenance": "Synthetic sanitized fixture; no actual run or approval represented",
+  "run": {
+    "conclusion": "success",
+    "head_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "id": 1001,
+    "path": ".github/workflows/validate.yml",
+    "repository": {
+      "full_name": "example/proof-review"
+    },
+    "run_attempt": 1,
+    "status": "completed"
+  },
+  "jobs": {
+    "jobs": [
+      {
+        "conclusion": "success",
+        "head_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "id": 1002,
+        "name": "validate",
+        "run_attempt": 1,
+        "run_id": 1001,
+        "status": "completed"
+      }
+    ],
+    "total_count": 1
+  },
+  "reviews": []
+}
