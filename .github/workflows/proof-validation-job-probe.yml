@@ -1,0 +1,57 @@
+# LOCAL PROPOSAL ONLY. Not installed. Removing false requires separate approval.
+# No verifier/private records are needed for this narrower metadata experiment.
+name: Proof validation job identity probe
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  observe:
+    name: Observe pending validation identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      actions: read
+    steps:
+      - name: Observe own run and exact pending job, without approving it
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          const e=process.env;
+          const stop=()=>{throw Error('Validation probe blocked; do not approve the pending job.');};
+          try {
+            if(e.GITHUB_ACTIONS!=='true'||e.GITHUB_EVENT_NAME!=='workflow_dispatch'||e.GITHUB_RUN_ATTEMPT!=='1'||e.GITHUB_REF!=='refs/heads/main'||e.GITHUB_API_URL!=='https://api.github.com'||e.GITHUB_SERVER_URL!=='https://github.com'||!e.GITHUB_TOKEN||!/^[1-9]\d*$/.test(e.GITHUB_RUN_ID)||!/^[-\w.]+\/[-\w.]+$/.test(e.GITHUB_REPOSITORY)||!/^[a-f0-9]{40}$/.test(e.GITHUB_SHA))stop();
+            const base=`https://api.github.com/repos/${e.GITHUB_REPOSITORY}/actions/runs/${e.GITHUB_RUN_ID}`;
+            async function get(suffix){
+              const r=await fetch(base+suffix,{method:'GET',redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:`Bearer ${e.GITHUB_TOKEN}`,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}});
+              if(r.status!==200||r.headers.has('link')||!r.headers.get('content-type')?.includes('application/json'))stop();
+              let count=0;const chunks=[];for await(const chunk of r.body){count+=chunk.length;if(count>262144)stop();chunks.push(chunk);}
+              return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            }
+            function checkRun(r){if(String(r.id)!==e.GITHUB_RUN_ID||r.run_attempt!==1||r.repository?.full_name!==e.GITHUB_REPOSITORY||r.head_repository?.full_name!==e.GITHUB_REPOSITORY||r.head_sha!==e.GITHUB_SHA||r.event!=='workflow_dispatch'||r.head_branch!=='main'||r.conclusion!==null||r.status!=='in_progress')stop();}
+            checkRun(await get(''));
+            let job;
+            for(let attempt=0;attempt<3;attempt++){
+              const list=await get('/attempts/1/jobs?per_page=100&page=1');
+              if(!Array.isArray(list.jobs)||list.total_count!==list.jobs.length||list.jobs.length>100)stop();
+              const matches=list.jobs.filter(j=>j.name==='Proof validation only');
+              if(matches.length>1)stop();
+              if(matches.length===1){job=matches[0];break;}
+              if(attempt<2)await new Promise(r=>setTimeout(r,2000));
+            }
+            if(!job||!Number.isSafeInteger(job.id)||job.id<=0||String(job.run_id)!==e.GITHUB_RUN_ID||job.head_sha!==e.GITHUB_SHA||job.run_attempt!==1||job.conclusion!==null||!['queued','waiting','pending','requested'].includes(job.status))stop();
+            checkRun(await get(''));
+            console.log(JSON.stringify({validationOnly:true,runId:e.GITHUB_RUN_ID,attempt:1,pendingJobId:job.id,pendingState:job.status,authenticatedAuthority:false,publicationAuthorized:false}));
+            console.log(`Validation only: inspect run ${e.GITHUB_RUN_ID}, attempt 1, job ${job.id}. No publication authorized.`);
+          } catch { console.error('Validation probe blocked. Do not approve the pending job; no actions performed.');process.exitCode=78; }
+          JS
+  validate:
+    name: Proof validation only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    environment: proof-release-owner
+    permissions: {}
+    steps:
+      - name: Report manual gate passage only
+        run: echo 'Validation-only gate passed. No release data loaded; no publication authorized or performed.'
