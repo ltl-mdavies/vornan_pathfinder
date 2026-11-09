@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { ChevronLeft, ChevronRight, Minus, Plus, RotateCw } from "lucide-react";
 import { ViewerControlIsland } from "./viewer-control-island";
+import { createPdfLoadLifetime } from "./pdf-load-lifetime";
 
 type FitMode = "page" | "width" | "actual";
 
@@ -62,8 +63,7 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
   }, []);
 
   useEffect(() => {
-    let disposed = false;
-    let loadingTask: { promise: Promise<any>; destroy?: () => void } | null = null;
+    const lifetime = createPdfLoadLifetime();
     setDocument(null);
     setPageNumber(1);
     setPageCount(null);
@@ -75,35 +75,33 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
     void (async () => {
       try {
         const [pdfjs, worker] = await Promise.all([
-          import("pdfjs-dist"),
+          import("pdfjs-dist/legacy/build/pdf.mjs"),
           import("./pdf-worker-url")
         ]);
+        if (lifetime.disposed) return;
         pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-        loadingTask = pdfjs.getDocument({
+        const loadingTask = pdfjs.getDocument({
           url: source,
           disableAutoFetch: false,
           disableStream: false,
           rangeChunkSize: 64 * 1024,
           withCredentials: false
         });
+        lifetime.attach(loadingTask);
         const nextDocument = await loadingTask.promise;
-        if (disposed) {
-          void nextDocument.destroy?.();
-          return;
-        }
+        if (lifetime.disposed) return;
         setDocument(nextDocument);
         setPageCount(nextDocument.numPages);
         onLoadRef.current();
       } catch {
-        if (disposed) return;
+        if (lifetime.disposed) return;
         setFailed(true);
         onErrorRef.current();
       }
     })();
 
     return () => {
-      disposed = true;
-      void loadingTask?.destroy?.();
+      lifetime.dispose();
     };
   }, [source]);
 
@@ -138,6 +136,7 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
         const context = canvas.getContext("2d", { alpha: false });
         if (!context) throw new Error("Canvas is unavailable");
         const nextRenderTask = page.render({
+          canvas,
           canvasContext: context,
           viewport,
           transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0]
