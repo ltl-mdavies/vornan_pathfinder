@@ -29,7 +29,7 @@ jobs:
               let count=0;const chunks=[];for await(const chunk of r.body){count+=chunk.length;if(count>262144)stop();chunks.push(chunk);}
               return JSON.parse(Buffer.concat(chunks).toString('utf8'));
             }
-            function checkRun(r){if(String(r.id)!==e.GITHUB_RUN_ID||r.run_attempt!==1||r.repository?.full_name!==e.GITHUB_REPOSITORY||r.head_repository?.full_name!==e.GITHUB_REPOSITORY||r.head_sha!==e.GITHUB_SHA||r.event!=='workflow_dispatch'||r.head_branch!=='main'||r.conclusion!==null||r.status!=='in_progress')stop();}
+            function checkRun(r){if(String(r.id)!==e.GITHUB_RUN_ID||r.run_attempt!==1||r.repository?.full_name!==e.GITHUB_REPOSITORY||r.head_repository?.full_name!==e.GITHUB_REPOSITORY||r.head_sha!==e.GITHUB_SHA||r.event!=='workflow_dispatch'||r.head_branch!=='main'||r.conclusion!==null||!['in_progress','waiting'].includes(r.status))stop();}
             checkRun(await get(''));
             let job;
             for(let attempt=0;attempt<3;attempt++){
