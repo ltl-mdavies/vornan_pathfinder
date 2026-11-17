@@ -20,10 +20,12 @@ tools outside the deployed package fail closed on binary data; do not use them
 on compressed records until separately adapted and reviewed.
 
 Rollback: the original pre-codec binary is NOT compatible after compressed writes.
-Retain a separately tested compatibility rollback with the decoder and
-WRITE_COMPRESSED_JOBS=false. It reads all old/new jobs; small writes remain plain,
-while oversized writes fail closed. It is a read-safe recovery posture, not a
-claim of full large-order write availability. No lossy reverse migration.
+Retain a separately tested compatibility rollback with BOTH reader and writer
+codec and prior business logic. It must continue large-job confirmation and
+writeback normally. A decoder-only rollback is unsafe: Lift may accept an order
+before a later job update fails. Original d5 is pre-first-compressed-write only.
+Compatibility rollback retains this required format support and reverts the
+new diagnostic classifier; it does not remove compression or migrate data.
 
 Evidence: local captured workbook SHA256
 7616ad134b36f379d92a6d2487b64419d2d7dcbcaf87eb62625de7002e2f270b.

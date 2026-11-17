@@ -8,7 +8,6 @@ export const JOB_COMPRESS_THRESHOLD = 300 * 1024;
 // Reserve room for the existing timestamp override and future small metadata.
 export const JOB_ITEM_BUDGET = 396 * 1024;
 export const JOB_JSON_BUDGET = 16 * 1024 * 1024;
-export const WRITE_COMPRESSED_JOBS = true;
 
 export class JobStorageError extends Error {
   constructor(public readonly code: "job_storage_size_exceeded" | "job_storage_integrity_failed") {
@@ -45,9 +44,8 @@ export function encodeJobDynamoItem(item: Item): Item {
   if (typeof raw !== "string" || !item.customer_id?.S || !item.job_id?.S) return fail();
   const plainBytes = jobDynamoItemBytes(item);
   if (plainBytes <= JOB_COMPRESS_THRESHOLD) return item;
-  if (!WRITE_COMPRESSED_JOBS && plainBytes <= JOB_ITEM_BUDGET) return item;
   const source = Buffer.from(raw, "utf8");
-  if (source.byteLength > JOB_JSON_BUDGET || !WRITE_COMPRESSED_JOBS) {
+  if (source.byteLength > JOB_JSON_BUDGET) {
     throw new JobStorageError("job_storage_size_exceeded");
   }
   const job = JSON.parse(raw);
