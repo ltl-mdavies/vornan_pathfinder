@@ -1,4 +1,5 @@
 import {configuredCatalogRecordRouter} from './catalog-records/configured-router.js';
+import { JobStorageError } from "./job-dynamo-codec.js";
 import { statusProofingEnabled } from "./status-proof-capability.js";
 import { statusHandoffUrl } from "./proof/status-handoff.js";
 import { freshStatusProofSummary } from "./proof/status-fresh-summary.js";
@@ -5539,6 +5540,9 @@ function wrikeEvidenceCaptureErrorMessage(error: unknown) {
 }
 
 function classifyWrikeManualIntakePreviewError(error: unknown): WrikeManualIntakeFailure {
+  if (error instanceof JobStorageError) {
+    return { failure_stage: "preview_creation", failure_code: error.code, reason_code: error.code };
+  }
   if (error instanceof WrikeLiftDocumentPublicationError) {
     const failureCode = {
       disabled: "publication_disabled",

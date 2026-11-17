@@ -41,6 +41,8 @@ const reasons: Record<string, string> = {
   publication_identity_conflict: "The published document conflicts with saved evidence. Internal support must review it; do not resubmit.",
   delivery_preflight_failed: "The published order document was not reachable for delivery to Lift. Internal support must check document delivery.",
   manifest_write_failed: "The document delivery record could not be saved. Internal support must check delivery storage.",
+  job_storage_size_exceeded: "The job exceeds safe storage capacity. Internal support must review storage. Keep all order lines; do not split or resubmit an uncertain order.",
+  job_storage_integrity_failed: "The saved job could not be verified. Internal support must review storage before any submission.",
   preview_failed: "The order grid could not be converted into a job. Check the grid format and required fields with internal support."
 };
 export class IntakePreparationFailure extends Error {
