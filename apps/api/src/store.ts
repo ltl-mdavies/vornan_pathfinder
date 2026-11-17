@@ -1,4 +1,5 @@
 import type {JsonArtworkBinding} from './json-intake/artwork-delivery.js';
+import { decodeDynamoRecord, encodeJobDynamoItem } from "./job-dynamo-codec.js";
 import { customerOrderAccumulator } from './operations/customer-order-summary.js';
 import type {JsonReceiptJobBinding} from './json-intake/submission-job.js';
 import { createSeedOutputTemplate } from './lift-output-templates.js';
@@ -2192,19 +2193,17 @@ function dynamoString(value: string | number | null | undefined) {
 }
 
 function dynamoItem(keys: Record<string, string>, data: unknown): Record<string, AttributeValue> {
-  return {
+  const item: Record<string, AttributeValue> = {
     ...Object.fromEntries(Object.entries(keys).map(([key, value]) => [key, dynamoString(value)])),
     data: { S: JSON.stringify(data) },
     updated_at: dynamoString(now())
   };
+  return Object.keys(keys).length === 2 && keys.customer_id && keys.job_id
+    ? encodeJobDynamoItem(item) : item;
 }
 
 function parseDynamoData<T>(item: Record<string, AttributeValue>): T | null {
-  const data = item.data?.S;
-  if (!data) {
-    return null;
-  }
-  return JSON.parse(data) as T;
+  return decodeDynamoRecord<T>(item);
 }
 
 async function scanDynamoTable(tableName: string) {

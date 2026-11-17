@@ -31,6 +31,8 @@ export type WrikeManualIntakeFailureCode =
   | "delivery_preflight_failed"
   | "manifest_write_failed"
   | "preview_failed"
+  | "job_storage_size_exceeded"
+  | "job_storage_integrity_failed"
   | "unknown";
 
 export interface WrikeManualIntakeFailure {

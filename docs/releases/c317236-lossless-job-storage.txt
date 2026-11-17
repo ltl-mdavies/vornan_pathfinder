@@ -1,0 +1,48 @@
+C317236 lossless job storage — 2026-11-17
+
+Scope: API job persistence only. No aggregation, line splitting, permissions,
+customer settings, scheduler, frontend, upload, email or Proof decision changes.
+
+Large jobs are stored as gzip JSON in data.B. Ordinary data.S jobs are unchanged.
+Version, byte length, SHA256 and key identities are checked before hydrated data
+can be used. Inflation is capped at the declared size, at most 16 MiB. Complete
+encoded items must fit within 396 KiB, reserving 4 KiB for existing outer metadata.
+All existing job write/read paths use the shared codec; CAS and transactions
+remain unchanged. JobStorageError is an internal storage diagnostic, not an
+instruction to alter a customer's valid order grid.
+
+Operations: compressed items cannot be interpreted by raw JSON.parse(data.S).
+Use decodeDynamoRecord or normal authenticated job APIs. For raw Dynamo lookup,
+search contains(data,:identifier) OR contains(job_search,:identifier). The latter
+contains only bounded contract/task/job/external-order identifiers and is never
+a substitute for the complete record. Legacy replacement/rejected-recovery
+tools outside the deployed package fail closed on binary data; do not use them
+on compressed records until separately adapted and reviewed.
+
+Rollback: the original pre-codec binary is NOT compatible after compressed writes.
+Retain a separately tested compatibility rollback with BOTH reader and writer
+codec and prior business logic. It must continue large-job confirmation and
+writeback normally. A decoder-only rollback is unsafe: Lift may accept an order
+before a later job update fails. Original d5 is pre-first-compressed-write only.
+Compatibility rollback retains this required format support and reverts the
+new diagnostic classifier; it does not remove compression or migrate data.
+
+Evidence: local captured workbook SHA256
+7616ad134b36f379d92a6d2487b64419d2d7dcbcaf87eb62625de7002e2f270b.
+100 distinct A1–A50/B1–B50 creatives, quantity100, product348225; complete JSON
+roundtrip equal. Actual-fixture model418383B -> approximately9558B, echoed-payload
+submit-attempt model132601B. Private workbook/job fixture is NOT committed.
+
+Targeted tests cover codec failures, real store reads, preview atomic/non-atomic
+creation, monotonic snapshot, whole-store writes, association conditional/transaction,
+source review, submit finalization, Wrike prepared/posted/replay rejection. Existing
+idempotency/CAS suites remain required: mocks here do not simulate DynamoDB's
+full transaction engine. No cloud test environment is needed for this change.
+
+Release must preserve actual live d5c0958d baseline, including unmerged Catalog
+and Proof work. Main source integration is not a license to deploy older main's
+full package. Build against verified deployed source; inspect exact bundle delta,
+archive candidate/compatibility rollback, receive independent Live Support GO,
+then update only vornan-pathfinder-api-prod with a revision precondition. Observe
+normal intake; never blindly retry uncertain transport. Verify100 Lift lines and
+one Wrike confirmation before closing the incident.
